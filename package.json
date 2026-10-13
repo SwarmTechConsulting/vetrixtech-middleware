@@ -1,0 +1,86 @@
+{
+  "name": "@vetrixtech/middleware",
+  "version": "0.1.0",
+  "description": "Drop-in VetrixTech request screening for Express, Next.js, Cloudflare Workers and Base44/Deno. Rules are evaluated locally from a synced cache; logs are sent in the background.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SwarmTechConsulting/vetrixtech-middleware.git"
+  },
+  "type": "module",
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/esm/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      }
+    },
+    "./engine": {
+      "import": {
+        "types": "./dist/esm/engine.d.ts",
+        "default": "./dist/esm/engine.js"
+      },
+      "require": {
+        "types": "./dist/cjs/engine.d.ts",
+        "default": "./dist/cjs/engine.js"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "typesVersions": {
+    "*": {
+      "engine": [
+        "./dist/cjs/engine.d.ts"
+      ]
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "test/vectors.json",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.esm.json && tsc -p tsconfig.cjs.json && node scripts/fix-cjs.mjs",
+    "typecheck": "tsc -p tsconfig.esm.json --noEmit",
+    "test": "node --experimental-strip-types --no-warnings --test test/*.test.ts",
+    "check-engine": "node scripts/check-engine.mjs",
+    "prepublishOnly": "npm run check-publish && npm run typecheck && npm test && npm run build",
+    "set-repo": "node scripts/set-repo.mjs",
+    "check-publish": "node scripts/check-publish.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  },
+  "keywords": [
+    "security",
+    "waf",
+    "middleware",
+    "rate-limit",
+    "bot-protection",
+    "express",
+    "nextjs",
+    "cloudflare-workers",
+    "deno"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "homepage": "https://github.com/SwarmTechConsulting/vetrixtech-middleware#readme",
+  "bugs": {
+    "url": "https://github.com/SwarmTechConsulting/vetrixtech-middleware/issues"
+  }
+}

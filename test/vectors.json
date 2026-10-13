@@ -1,0 +1,1381 @@
+{
+  "description": "Shared VetrixTech rule-engine test vectors. Every engine implementation (middleware package, Base44 backend) must produce these verdicts. counts maps a window in seconds to the number of requests from the IP in that window, including the current one ('default' applies to any window).",
+  "now": "2026-10-10T12:00:00.000Z",
+  "vectors": [
+    {
+      "name": "Allow rule beats signature and scanner-style checks",
+      "plan_item": "1.1",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "10.0.0.5",
+        "method": "GET",
+        "path": "/wp-admin",
+        "user_agent": "curl/8.0"
+      },
+      "expected": {
+        "verdict": "allowed",
+        "triggered": "Allow monitor",
+        "auto_block": null
+      },
+      "rules": [
+        {
+          "id": "allow_monitor",
+          "name": "Allow monitor",
+          "type": "ip_allow",
+          "criteria": {
+            "ips": [
+              "10.0.0.5"
+            ]
+          },
+          "priority": 100,
+          "deployment_state": "enforced",
+          "action": "allow"
+        }
+      ]
+    },
+    {
+      "name": "Allow rule beats the blocklist",
+      "plan_item": "1.1",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "10.0.0.5",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "allowed",
+        "triggered": "Allow monitor"
+      },
+      "rules": [
+        {
+          "id": "allow_monitor",
+          "name": "Allow monitor",
+          "type": "ip_allow",
+          "criteria": {
+            "ips": [
+              "10.0.0.5"
+            ]
+          },
+          "priority": 100,
+          "deployment_state": "enforced",
+          "action": "allow"
+        }
+      ],
+      "blocklist": [
+        {
+          "ip_or_range": "10.0.0.5",
+          "reason": "old auto-block",
+          "source": "auto"
+        }
+      ]
+    },
+    {
+      "name": "Allow rule beats a higher-priority block rule",
+      "plan_item": "1.1",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "10.0.0.5",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "allowed"
+      },
+      "rules": [
+        {
+          "id": "block_10/8",
+          "name": "Block 10/8",
+          "type": "ip_block",
+          "criteria": {
+            "cidrs": [
+              "10.0.0.0/8"
+            ]
+          },
+          "priority": 1,
+          "deployment_state": "enforced",
+          "action": "block"
+        },
+        {
+          "id": "allow_monitor",
+          "name": "Allow monitor",
+          "type": "ip_allow",
+          "criteria": {
+            "ips": [
+              "10.0.0.5"
+            ]
+          },
+          "priority": 500,
+          "deployment_state": "enforced",
+          "action": "allow"
+        }
+      ]
+    },
+    {
+      "name": "Allow rule beats a rate burst",
+      "plan_item": "1.1",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "10.0.0.5",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "allowed"
+      },
+      "rules": [
+        {
+          "id": "allow_monitor",
+          "name": "Allow monitor",
+          "type": "ip_allow",
+          "criteria": {
+            "ips": [
+              "10.0.0.5"
+            ]
+          },
+          "priority": 100,
+          "deployment_state": "enforced",
+          "action": "allow"
+        }
+      ],
+      "counts": {
+        "default": 500
+      }
+    },
+    {
+      "name": "Observe-only allow rule does not allow",
+      "plan_item": "1.1",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "10.0.0.5",
+        "method": "GET",
+        "path": "/.env",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "blocked",
+        "auto_block": "signature",
+        "observed": [
+          "Allow monitor"
+        ]
+      },
+      "rules": [
+        {
+          "id": "allow_monitor",
+          "name": "Allow monitor",
+          "type": "ip_allow",
+          "criteria": {
+            "ips": [
+              "10.0.0.5"
+            ]
+          },
+          "priority": 100,
+          "deployment_state": "observe_only",
+          "action": "allow"
+        }
+      ]
+    },
+    {
+      "name": "Geo allow rule allows",
+      "plan_item": "1.1",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "GET",
+        "path": "/wp-login.php",
+        "user_agent": "Mozilla/5.0",
+        "country": "ZA"
+      },
+      "expected": {
+        "verdict": "allowed"
+      },
+      "rules": [
+        {
+          "id": "allow_za",
+          "name": "Allow ZA",
+          "type": "geo",
+          "criteria": {
+            "countries": [
+              "ZA"
+            ]
+          },
+          "action": "allow",
+          "priority": 100,
+          "deployment_state": "enforced"
+        }
+      ]
+    },
+    {
+      "name": "Blocklisted IP is blocked",
+      "plan_item": "1.3",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "203.0.113.9",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "blocked",
+        "triggered": "Blocklist"
+      },
+      "blocklist": [
+        {
+          "ip_or_range": "203.0.113.9",
+          "reason": "manual"
+        }
+      ]
+    },
+    {
+      "name": "Expired block is ignored",
+      "plan_item": "1.3",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "203.0.113.9",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "allowed"
+      },
+      "blocklist": [
+        {
+          "ip_or_range": "203.0.113.9",
+          "expires_at": "2026-10-10T11:59:00.000Z"
+        }
+      ]
+    },
+    {
+      "name": "Block not yet expired still applies",
+      "plan_item": "1.3",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "203.0.113.9",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "blocked"
+      },
+      "blocklist": [
+        {
+          "ip_or_range": "203.0.113.9",
+          "expires_at": "2026-10-10T12:15:00.000Z"
+        }
+      ]
+    },
+    {
+      "name": "Block with status expired is ignored",
+      "plan_item": "1.3",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "203.0.113.9",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "allowed"
+      },
+      "blocklist": [
+        {
+          "ip_or_range": "203.0.113.9",
+          "status": "expired"
+        }
+      ]
+    },
+    {
+      "name": "Block scoped to another app is ignored",
+      "plan_item": "1.4",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "203.0.113.9",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "allowed"
+      },
+      "blocklist": [
+        {
+          "ip_or_range": "203.0.113.9",
+          "app_id": "app_b"
+        }
+      ]
+    },
+    {
+      "name": "Global block applies to every app",
+      "plan_item": "1.4",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "203.0.113.9",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "blocked"
+      },
+      "blocklist": [
+        {
+          "ip_or_range": "203.0.113.9",
+          "app_id": ""
+        }
+      ]
+    },
+    {
+      "name": "Blocklist CIDR range",
+      "plan_item": "1.4",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "192.0.2.77",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "blocked"
+      },
+      "blocklist": [
+        {
+          "ip_or_range": "192.0.2.0/24"
+        }
+      ]
+    },
+    {
+      "name": "Blocklist dash range",
+      "plan_item": "1.4",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "192.0.2.40",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "blocked"
+      },
+      "blocklist": [
+        {
+          "ip_or_range": "192.0.2.10-192.0.2.50"
+        }
+      ]
+    },
+    {
+      "name": "Outside dash range",
+      "plan_item": "1.4",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "192.0.2.51",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "allowed"
+      },
+      "blocklist": [
+        {
+          "ip_or_range": "192.0.2.10-192.0.2.50"
+        }
+      ]
+    },
+    {
+      "name": "First matching rule by priority wins (throttle at 10 beats block at 20)",
+      "plan_item": "1.1",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "throttled",
+        "triggered": "Slow down"
+      },
+      "rules": [
+        {
+          "id": "hard_block",
+          "name": "Hard block",
+          "type": "pattern",
+          "criteria": {
+            "path": "^/$"
+          },
+          "action": "block",
+          "priority": 20,
+          "deployment_state": "enforced"
+        },
+        {
+          "id": "slow_down",
+          "name": "Slow down",
+          "type": "pattern",
+          "criteria": {
+            "path": "^/$"
+          },
+          "action": "throttle",
+          "priority": 10,
+          "deployment_state": "enforced"
+        }
+      ]
+    },
+    {
+      "name": "Rolled-back rule is ignored",
+      "plan_item": "1.1",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "203.0.113.1",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "allowed"
+      },
+      "rules": [
+        {
+          "id": "old",
+          "name": "Old",
+          "type": "ip_block",
+          "criteria": {
+            "ips": [
+              "203.0.113.1"
+            ]
+          },
+          "priority": 100,
+          "deployment_state": "rolled_back",
+          "action": "block"
+        }
+      ]
+    },
+    {
+      "name": "Inactive rule is ignored",
+      "plan_item": "1.1",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "203.0.113.1",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "allowed"
+      },
+      "rules": [
+        {
+          "id": "off",
+          "name": "Off",
+          "type": "ip_block",
+          "criteria": {
+            "ips": [
+              "203.0.113.1"
+            ]
+          },
+          "priority": 100,
+          "deployment_state": "enforced",
+          "action": "block",
+          "active": false
+        }
+      ]
+    },
+    {
+      "name": "Observe-only block rule logs but allows",
+      "plan_item": "1.1",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "203.0.113.1",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "allowed",
+        "observed": [
+          "Trial block"
+        ]
+      },
+      "rules": [
+        {
+          "id": "trial_block",
+          "name": "Trial block",
+          "type": "ip_block",
+          "criteria": {
+            "ips": [
+              "203.0.113.1"
+            ]
+          },
+          "priority": 100,
+          "deployment_state": "observe_only",
+          "action": "block"
+        }
+      ]
+    },
+    {
+      "name": "Staged rule enforces",
+      "plan_item": "1.1",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "203.0.113.1",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "blocked",
+        "triggered": "Staged block"
+      },
+      "rules": [
+        {
+          "id": "staged_block",
+          "name": "Staged block",
+          "type": "ip_block",
+          "criteria": {
+            "ips": [
+              "203.0.113.1"
+            ]
+          },
+          "priority": 100,
+          "deployment_state": "staged",
+          "action": "block"
+        }
+      ]
+    },
+    {
+      "name": "Max-size rule blocks large upload",
+      "plan_item": "1.5",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "POST",
+        "path": "/upload",
+        "user_agent": "Mozilla/5.0",
+        "body_size": 5000
+      },
+      "expected": {
+        "verdict": "blocked",
+        "triggered": "Upload cap"
+      },
+      "rules": [
+        {
+          "id": "upload_cap",
+          "name": "Upload cap",
+          "type": "pattern",
+          "criteria": {
+            "path": "^/upload",
+            "max_size": 1000
+          },
+          "action": "block",
+          "priority": 100,
+          "deployment_state": "enforced"
+        }
+      ]
+    },
+    {
+      "name": "Max-size rule allows small upload",
+      "plan_item": "1.5",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "POST",
+        "path": "/upload",
+        "user_agent": "Mozilla/5.0",
+        "body_size": 500
+      },
+      "expected": {
+        "verdict": "allowed"
+      },
+      "rules": [
+        {
+          "id": "upload_cap",
+          "name": "Upload cap",
+          "type": "pattern",
+          "criteria": {
+            "path": "^/upload",
+            "max_size": 1000
+          },
+          "action": "block",
+          "priority": 100,
+          "deployment_state": "enforced"
+        }
+      ]
+    },
+    {
+      "name": "Max-size rule ignores other paths",
+      "plan_item": "1.5",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "POST",
+        "path": "/api/data",
+        "user_agent": "Mozilla/5.0",
+        "body_size": 5000
+      },
+      "expected": {
+        "verdict": "allowed"
+      },
+      "rules": [
+        {
+          "id": "upload_cap",
+          "name": "Upload cap",
+          "type": "pattern",
+          "criteria": {
+            "path": "^/upload",
+            "max_size": 1000
+          },
+          "action": "block",
+          "priority": 100,
+          "deployment_state": "enforced"
+        }
+      ]
+    },
+    {
+      "name": "Pattern rule with no criteria matches nothing",
+      "plan_item": "1.5",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "allowed"
+      },
+      "rules": [
+        {
+          "id": "empty",
+          "name": "Empty",
+          "type": "pattern",
+          "criteria": {},
+          "action": "block",
+          "priority": 100,
+          "deployment_state": "enforced"
+        }
+      ]
+    },
+    {
+      "name": "Pattern method+path matches",
+      "plan_item": "1.5",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "POST",
+        "path": "/api/admin/users",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "blocked"
+      },
+      "rules": [
+        {
+          "id": "admin_writes",
+          "name": "Admin writes",
+          "type": "pattern",
+          "criteria": {
+            "method": "POST",
+            "path": "^/api/admin"
+          },
+          "action": "block",
+          "priority": 100,
+          "deployment_state": "enforced"
+        }
+      ]
+    },
+    {
+      "name": "Pattern method mismatch",
+      "plan_item": "1.5",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "GET",
+        "path": "/api/admin/users",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "allowed"
+      },
+      "rules": [
+        {
+          "id": "admin_writes",
+          "name": "Admin writes",
+          "type": "pattern",
+          "criteria": {
+            "method": "POST",
+            "path": "^/api/admin"
+          },
+          "action": "block",
+          "priority": 100,
+          "deployment_state": "enforced"
+        }
+      ]
+    },
+    {
+      "name": "Pattern custom signature in user agent",
+      "plan_item": "1.5",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "EvilBot/2.0"
+      },
+      "expected": {
+        "verdict": "blocked",
+        "triggered": "No EvilBot"
+      },
+      "rules": [
+        {
+          "id": "no_evilbot",
+          "name": "No EvilBot",
+          "type": "pattern",
+          "criteria": {
+            "signatures": [
+              "evilbot"
+            ]
+          },
+          "action": "block",
+          "priority": 100,
+          "deployment_state": "enforced"
+        }
+      ]
+    },
+    {
+      "name": "Invalid regex falls back to substring",
+      "plan_item": "1.5",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "GET",
+        "path": "/api/[debug",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "blocked"
+      },
+      "rules": [
+        {
+          "id": "bad_regex",
+          "name": "Bad regex",
+          "type": "pattern",
+          "criteria": {
+            "path": "/api/["
+          },
+          "action": "block",
+          "priority": 100,
+          "deployment_state": "enforced"
+        }
+      ]
+    },
+    {
+      "name": "Rate limit throttles the 11th request",
+      "plan_item": "1.6",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "POST",
+        "path": "/api/login",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "throttled",
+        "triggered": "Login limit"
+      },
+      "rules": [
+        {
+          "id": "login_limit",
+          "name": "Login limit",
+          "type": "rate_limit",
+          "criteria": {
+            "max_requests": 10,
+            "window_seconds": 60,
+            "path": "^/api/login",
+            "method": "POST"
+          },
+          "action": "throttle",
+          "priority": 100,
+          "deployment_state": "enforced"
+        }
+      ],
+      "counts": {
+        "60": 11
+      }
+    },
+    {
+      "name": "Rate limit allows the 10th request",
+      "plan_item": "1.6",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "POST",
+        "path": "/api/login",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "allowed"
+      },
+      "rules": [
+        {
+          "id": "login_limit",
+          "name": "Login limit",
+          "type": "rate_limit",
+          "criteria": {
+            "max_requests": 10,
+            "window_seconds": 60,
+            "path": "^/api/login",
+            "method": "POST"
+          },
+          "action": "throttle",
+          "priority": 100,
+          "deployment_state": "enforced"
+        }
+      ],
+      "counts": {
+        "60": 10
+      }
+    },
+    {
+      "name": "Rate limit only applies to its path",
+      "plan_item": "1.6",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "POST",
+        "path": "/api/other",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "allowed"
+      },
+      "rules": [
+        {
+          "id": "login_limit",
+          "name": "Login limit",
+          "type": "rate_limit",
+          "criteria": {
+            "max_requests": 10,
+            "window_seconds": 60,
+            "path": "^/api/login",
+            "method": "POST"
+          },
+          "action": "throttle",
+          "priority": 100,
+          "deployment_state": "enforced"
+        }
+      ],
+      "counts": {
+        "60": 50
+      }
+    },
+    {
+      "name": "Rate limit without counts never matches",
+      "plan_item": "1.6",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "POST",
+        "path": "/api/login",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "allowed"
+      },
+      "rules": [
+        {
+          "id": "login_limit",
+          "name": "Login limit",
+          "type": "rate_limit",
+          "criteria": {
+            "max_requests": 10,
+            "window_seconds": 60,
+            "path": "^/api/login",
+            "method": "POST"
+          },
+          "action": "throttle",
+          "priority": 100,
+          "deployment_state": "enforced"
+        }
+      ]
+    },
+    {
+      "name": "Geo block matches (case-insensitive)",
+      "plan_item": "1.1",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0",
+        "country": "ru"
+      },
+      "expected": {
+        "verdict": "blocked"
+      },
+      "rules": [
+        {
+          "id": "geo_block",
+          "name": "Geo block",
+          "type": "geo",
+          "criteria": {
+            "countries": [
+              "RU",
+              "KP"
+            ]
+          },
+          "action": "block",
+          "priority": 100,
+          "deployment_state": "enforced"
+        }
+      ]
+    },
+    {
+      "name": "Geo rule with no country does not match",
+      "plan_item": "1.1",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "allowed"
+      },
+      "rules": [
+        {
+          "id": "geo_block",
+          "name": "Geo block",
+          "type": "geo",
+          "criteria": {
+            "countries": [
+              "RU",
+              "KP"
+            ]
+          },
+          "action": "block",
+          "priority": 100,
+          "deployment_state": "enforced"
+        }
+      ]
+    },
+    {
+      "name": "Port rule list",
+      "plan_item": "1.1",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0",
+        "port": 3389
+      },
+      "expected": {
+        "verdict": "blocked"
+      },
+      "rules": [
+        {
+          "id": "remote_ports",
+          "name": "Remote ports",
+          "type": "port",
+          "criteria": {
+            "port": "23, 3389"
+          },
+          "action": "block",
+          "priority": 100,
+          "deployment_state": "enforced"
+        }
+      ]
+    },
+    {
+      "name": "URL-encoded SQL injection is blocked",
+      "plan_item": "1.7",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "GET",
+        "path": "/search?q=%27%20OR%201%3D1--",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "blocked",
+        "auto_block": "signature"
+      }
+    },
+    {
+      "name": "Double-encoded path traversal is blocked",
+      "plan_item": "1.7",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "GET",
+        "path": "/files/%252e%252e%252fetc%252fpasswd",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "blocked",
+        "auto_block": "signature"
+      }
+    },
+    {
+      "name": "Plain SQL injection is blocked",
+      "plan_item": "1.7",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "GET",
+        "path": "/search?q=' OR 1=1--",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "blocked"
+      }
+    },
+    {
+      "name": "UNION SELECT with plus-encoding is blocked",
+      "plan_item": "1.7",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "GET",
+        "path": "/items?id=1+UNION+SELECT+password+FROM+users",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "blocked"
+      }
+    },
+    {
+      "name": "Encoded script tag is blocked",
+      "plan_item": "1.7",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "GET",
+        "path": "/comment?text=%3Cscript%3Ealert(1)%3C%2Fscript%3E",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "blocked"
+      }
+    },
+    {
+      "name": "Backslash traversal is blocked",
+      "plan_item": "1.7",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "GET",
+        "path": "/download?f=..\\..\\windows\\win.ini",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "blocked"
+      }
+    },
+    {
+      "name": ".env probe is blocked",
+      "plan_item": "1.7",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "GET",
+        "path": "/.env",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "blocked"
+      }
+    },
+    {
+      "name": "sqlmap user agent is blocked",
+      "plan_item": "1.7",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "sqlmap/1.7.2#stable (https://sqlmap.org)"
+      },
+      "expected": {
+        "verdict": "blocked",
+        "auto_block": "scanner"
+      }
+    },
+    {
+      "name": "curl health check is allowed",
+      "plan_item": "1.7",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "GET",
+        "path": "/health",
+        "user_agent": "curl/8.0.1"
+      },
+      "expected": {
+        "verdict": "allowed"
+      }
+    },
+    {
+      "name": "python-requests API client is allowed",
+      "plan_item": "1.7",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "GET",
+        "path": "/api/v1/orders",
+        "user_agent": "python-requests/2.31.0"
+      },
+      "expected": {
+        "verdict": "allowed"
+      }
+    },
+    {
+      "name": "Benign: apostrophe in a name",
+      "plan_item": "1.7",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "GET",
+        "path": "/search?q=o%27neil",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "allowed"
+      }
+    },
+    {
+      "name": "Benign: dashes in a slug",
+      "plan_item": "1.7",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "GET",
+        "path": "/blog/well-known-tips--part-2",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "allowed"
+      }
+    },
+    {
+      "name": "Benign: plus-encoded words",
+      "plan_item": "1.7",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "GET",
+        "path": "/search?q=rock+and+roll",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "allowed"
+      }
+    },
+    {
+      "name": "Benign: descending sort",
+      "plan_item": "1.7",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "GET",
+        "path": "/api/users?sort=-created_date",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "allowed"
+      }
+    },
+    {
+      "name": "Benign: encoded plus signs",
+      "plan_item": "1.7",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "GET",
+        "path": "/books/c%2B%2B-primer",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "allowed"
+      }
+    },
+    {
+      "name": "Benign: normal browser request",
+      "plan_item": "1.7",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "GET",
+        "path": "/dashboard",
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36"
+      },
+      "expected": {
+        "verdict": "allowed"
+      }
+    },
+    {
+      "name": "Rate burst over 120/60s is blocked",
+      "plan_item": "1.6",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "blocked",
+        "auto_block": "rate_burst"
+      },
+      "counts": {
+        "60": 121
+      }
+    },
+    {
+      "name": "120 requests in 60s is allowed",
+      "plan_item": "1.6",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "198.51.100.7",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "allowed"
+      },
+      "counts": {
+        "60": 120
+      }
+    },
+    {
+      "name": "IPv6 CIDR block",
+      "plan_item": "1.9",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "2001:db8::1",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "blocked"
+      },
+      "blocklist": [
+        {
+          "ip_or_range": "2001:db8::/32"
+        }
+      ]
+    },
+    {
+      "name": "IPv6 outside range",
+      "plan_item": "1.9",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "2001:db9::1",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "allowed"
+      },
+      "blocklist": [
+        {
+          "ip_or_range": "2001:db8::/32"
+        }
+      ]
+    },
+    {
+      "name": "IPv6 compressed vs expanded forms match",
+      "plan_item": "1.9",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "2001:0db8:0000:0000:0000:0000:0000:0001",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "blocked"
+      },
+      "rules": [
+        {
+          "id": "v6",
+          "name": "v6",
+          "type": "ip_block",
+          "criteria": {
+            "ips": [
+              "2001:db8::1"
+            ]
+          },
+          "priority": 100,
+          "deployment_state": "enforced",
+          "action": "block"
+        }
+      ]
+    },
+    {
+      "name": "IPv4-mapped IPv6 matches IPv4 range",
+      "plan_item": "1.9",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "::ffff:203.0.113.5",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "blocked"
+      },
+      "blocklist": [
+        {
+          "ip_or_range": "203.0.113.0/24"
+        }
+      ]
+    },
+    {
+      "name": "Invalid CIDR /33 matches nothing",
+      "plan_item": "1.9",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "203.0.113.5",
+        "method": "GET",
+        "path": "/",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "allowed"
+      },
+      "blocklist": [
+        {
+          "ip_or_range": "203.0.113.0/33"
+        }
+      ]
+    },
+    {
+      "name": "Unknown client IP skips IP checks but not signatures",
+      "plan_item": "1.1",
+      "request": {
+        "app_id": "app_a",
+        "source_ip": "",
+        "method": "GET",
+        "path": "/.env",
+        "user_agent": "Mozilla/5.0"
+      },
+      "expected": {
+        "verdict": "blocked",
+        "auto_block": "signature"
+      },
+      "blocklist": [
+        {
+          "ip_or_range": "0.0.0.0/0"
+        }
+      ]
+    }
+  ]
+}
