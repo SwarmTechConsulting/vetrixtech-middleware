@@ -60,7 +60,8 @@
     "check-engine": "node scripts/check-engine.mjs",
     "prepublishOnly": "npm run check-publish && npm run typecheck && npm test && npm run build",
     "set-repo": "node scripts/set-repo.mjs",
-    "check-publish": "node scripts/check-publish.mjs"
+    "check-publish": "node scripts/check-publish.mjs",
+    "version": "node scripts/sync-version.mjs && git add src/client.ts CHANGELOG.md README.md"
   },
   "devDependencies": {
     "typescript": "^6.0.3"

@@ -1,6 +1,11 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## Unreleased
+
+- First release published from GitHub (trusted publishing with provenance).
+- `npm version patch|minor|major` now updates `SDK_VERSION`, the changelog and the README in one step.
+
+## 0.1.0 (2026-10-13)
 
 First version. MIT licence.
 

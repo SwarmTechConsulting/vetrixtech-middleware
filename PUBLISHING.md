@@ -121,12 +121,16 @@ Same **Settings** page → **Publishing access** → select **Require two-factor
 
 ## Part E: Every release after that
 
-1. Make your changes, then run `npm test`.
-2. Update the version in **both** `package.json` and `SDK_VERSION` in `src/client.ts`. Use `0.1.1` for fixes and `0.2.0` for changes in behaviour. `npm publish` refuses to run if they differ.
-3. Add a line to `CHANGELOG.md`.
-4. Commit and push.
-5. On GitHub: **Releases** → **Draft a new release** → **Choose a tag** → type `v0.1.1` (the new version with a `v`) → **Create new tag** → **Publish release**.
-6. Approve the run when GitHub asks (Actions tab). The workflow checks the tag matches `package.json`, runs everything, and publishes.
+1. Make your changes and run `npm test`. Add a line under `## Unreleased` in `CHANGELOG.md` describing them.
+2. Commit them: `git add .` then `git commit -m "describe the change"`.
+3. Bump the version with **one** command. Use `patch` for fixes (0.1.1 → 0.1.2) and `minor` for changes in behaviour (0.1.x → 0.2.0):
+   ```bash
+   npm version patch
+   ```
+   This updates `package.json`, `SDK_VERSION` in `src/client.ts`, the changelog heading and the README example, then commits and creates the tag (e.g. `v0.1.2`).
+4. Push the commit and the tag: `git push --follow-tags`.
+5. On GitHub: **Releases** → **Draft a new release** → **Choose a tag** → pick the tag you just pushed → **Publish release**.
+6. Open the **Actions** tab, click the **Publish** run, and click **Review deployments** → tick **npm** → **Approve and deploy**. It runs the checks and tests and publishes. No terminal login, no phone approval.
 
 **If you change detection rules:** the server (`base44/shared/ruleEngine.ts`) and this package have separate engines. Both must give the same verdicts. When you change one, add a case to `test/vectors.json` and make sure both pass it. The Base44 app's tests already read the same cases.
 
