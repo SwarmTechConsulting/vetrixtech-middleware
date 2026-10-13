@@ -1,6 +1,6 @@
 {
   "name": "@vetrixtech/middleware",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Drop-in VetrixTech request screening for Express, Next.js, Cloudflare Workers and Base44/Deno. Rules are evaluated locally from a synced cache; logs are sent in the background.",
   "license": "MIT",
   "repository": {

@@ -88,7 +88,7 @@ The client IP comes from `CF-Connecting-IP` and the country from `request.cf`.
 ### Base44 backend functions (Deno)
 
 ```ts
-import { VetrixTech } from "npm:@vetrixtech/middleware@0.1.0";
+import { VetrixTech } from "npm:@vetrixtech/middleware@0.1.1";
 
 export default async function (req: Request): Promise<Response> {
   const result = await VetrixTech.base44(req, {

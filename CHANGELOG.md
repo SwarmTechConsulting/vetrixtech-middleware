@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.1 (2026-10-13)
+
 - First release published from GitHub (trusted publishing with provenance).
 - `npm version patch|minor|major` now updates `SDK_VERSION`, the changelog and the README in one step.
 
