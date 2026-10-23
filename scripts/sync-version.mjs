@@ -23,6 +23,6 @@ if (/^## Unreleased[ \t]*$/m.test(changelog)) {
 }
 write("CHANGELOG.md", changelog);
 
-write("README.md", read("README.md").replace(/npm:@vetrixtech\/middleware@[0-9][^"]*/g, `npm:@vetrixtech/middleware@${version}`));
+write("README.md", read("README.md").replace(/npm:@swarmtechshield\/middleware@[0-9][^"]*/g, `npm:@swarmtechshield/middleware@${version}`));
 
 console.log(`Version ${version}: updated SDK_VERSION, CHANGELOG.md and README.md`);

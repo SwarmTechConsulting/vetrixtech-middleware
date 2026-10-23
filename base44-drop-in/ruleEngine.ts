@@ -1,7 +1,7 @@
-// VetrixTech rule engine.
+// SwarmTech Shield rule engine.
 //
 // This one file is the single source of truth for how a request is judged.
-// It is used by the @vetrixtech/middleware package AND is written to drop into
+// It is used by the @swarmtechshield/middleware package AND is written to drop into
 // the Base44 app as base44/shared/ruleEngine.ts (it keeps every export the
 // existing backend functions import). Keep it free of runtime-specific APIs so
 // it runs unchanged in Node, Deno, Bun, Cloudflare Workers and edge runtimes.

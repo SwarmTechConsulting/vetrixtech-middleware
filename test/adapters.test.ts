@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { VetrixTech } from "../src/index.ts";
+import { SwarmTechShield, VetrixTech } from "../src/index.ts";
+import DefaultExport from "../src/index.ts";
 import { clientIpFromHeaders, fromForwardedFor, cleanIp } from "../src/ip.ts";
 import { startMock } from "./mock-server.ts";
 
@@ -44,7 +45,7 @@ function fakeExpress(ip: string, url = "/") {
   return { req, res };
 }
 
-function runExpress(mw: ReturnType<typeof VetrixTech.express>, ip: string, url = "/") {
+function runExpress(mw: ReturnType<typeof SwarmTechShield.express>, ip: string, url = "/") {
   const { req, res } = fakeExpress(ip, url);
   return new Promise<{ nextCalled: boolean; res: typeof res; req: typeof req }>((resolve) => {
     mw(req as never, res as never, () => resolve({ nextCalled: true, res, req }));
@@ -61,14 +62,16 @@ test("Express: blocks with 403, passes allowed requests to next(), uses req.ip",
   const mock = await startMock({ rules });
   t.after(() => mock.close());
   mock.state.key = freshKey();
-  const mw = VetrixTech.express({ connectionKey: mock.state.key, syncUrl: mock.syncUrl });
+  const mw = SwarmTechShield.express({ connectionKey: mock.state.key, syncUrl: mock.syncUrl });
   const blocked = await runExpress(mw, "::ffff:203.0.113.9");
   assert.equal(blocked.nextCalled, false);
   assert.equal(blocked.res.statusCode, 403);
   assert.equal(blocked.res.body, "Forbidden", "never reveals the rule name");
   const ok = await runExpress(mw, "198.51.100.1");
   assert.equal(ok.nextCalled, true);
-  assert.equal((ok.req as Record<string, unknown> & { vetrixtech?: { verdict: string } }).vetrixtech?.verdict, "allowed");
+  const okReq = ok.req as Record<string, unknown> & { swarmtechshield?: { verdict: string }; vetrixtech?: { verdict: string } };
+  assert.equal(okReq.swarmtechshield?.verdict, "allowed");
+  assert.equal(okReq.vetrixtech, okReq.swarmtechshield, "old property name still set");
 });
 
 test("Express: throttled requests get 429 with Retry-After", async (t) => {
@@ -77,7 +80,7 @@ test("Express: throttled requests get 429 with Retry-After", async (t) => {
   });
   t.after(() => mock.close());
   mock.state.key = freshKey();
-  const mw = VetrixTech.express({ connectionKey: mock.state.key, syncUrl: mock.syncUrl, retryAfterSeconds: 30 });
+  const mw = SwarmTechShield.express({ connectionKey: mock.state.key, syncUrl: mock.syncUrl, retryAfterSeconds: 30 });
   const r = await runExpress(mw, "198.51.100.1");
   assert.equal(r.res.statusCode, 429);
   assert.equal(r.res.headers["Retry-After"], "30");
@@ -87,7 +90,7 @@ test("Next.js: returns a 403 Response when blocked and undefined to continue", a
   const mock = await startMock({ rules });
   t.after(() => mock.close());
   mock.state.key = freshKey();
-  const mw = VetrixTech.nextjs({ connectionKey: mock.state.key, syncUrl: mock.syncUrl, logUrl: mock.logUrl, logBatchSize: 1 });
+  const mw = SwarmTechShield.nextjs({ connectionKey: mock.state.key, syncUrl: mock.syncUrl, logUrl: mock.logUrl, logBatchSize: 1 });
   const waited: Promise<unknown>[] = [];
   const event = { waitUntil: (p: Promise<unknown>) => void waited.push(p) };
   const blocked = await mw(new Request("https://app.test/x", { headers: { "x-real-ip": "203.0.113.9" } }), event);
@@ -107,9 +110,9 @@ test("Cloudflare: uses CF-Connecting-IP and request.cf.country", async (t) => {
   const req = new Request("https://app.test/", { headers: { "cf-connecting-ip": "198.51.100.8", "x-forwarded-for": "10.0.0.1" } });
   Object.defineProperty(req, "cf", { value: { country: "KP" } });
   const ctx = { waitUntil: (_p: Promise<unknown>) => {} };
-  const r = await VetrixTech.cloudflare(req, { connectionKey: mock.state.key, syncUrl: mock.syncUrl }, ctx);
+  const r = await SwarmTechShield.cloudflare(req, { connectionKey: mock.state.key, syncUrl: mock.syncUrl }, ctx);
   assert.equal(r.verdict, "blocked");
-  assert.equal(VetrixTech.toResponse(r)?.status, 403);
+  assert.equal(SwarmTechShield.toResponse(r)?.status, 403);
 });
 
 test("Base44/Deno: right-most X-Forwarded-For defeats a spoofed first value", async (t) => {
@@ -118,16 +121,16 @@ test("Base44/Deno: right-most X-Forwarded-For defeats a spoofed first value", as
   mock.state.key = freshKey();
   const o = { connectionKey: mock.state.key, syncUrl: mock.syncUrl };
   const spoofed = new Request("https://fn.test/", { headers: { "x-forwarded-for": "198.51.100.1, 203.0.113.9" } });
-  assert.equal((await VetrixTech.base44(spoofed, o)).verdict, "blocked");
+  assert.equal((await SwarmTechShield.base44(spoofed, o)).verdict, "blocked");
   const clean = new Request("https://fn.test/", { headers: { "x-forwarded-for": "198.51.100.1" } });
-  assert.equal((await VetrixTech.base44(clean, o)).verdict, "allowed");
+  assert.equal((await SwarmTechShield.base44(clean, o)).verdict, "allowed");
 });
 
 test("skip() bypasses screening", async (t) => {
   const mock = await startMock({ rules });
   t.after(() => mock.close());
   mock.state.key = freshKey();
-  const r = await VetrixTech.screenRequest(new Request("https://x.test/healthz", { headers: { "x-forwarded-for": "203.0.113.9" } }), {
+  const r = await SwarmTechShield.screenRequest(new Request("https://x.test/healthz", { headers: { "x-forwarded-for": "203.0.113.9" } }), {
     connectionKey: mock.state.key,
     syncUrl: mock.syncUrl,
     skip: (req) => new URL(req.url).pathname === "/healthz",
@@ -138,7 +141,7 @@ test("skip() bypasses screening", async (t) => {
 
 test("a missing connection key fails open and is reported once, instead of crashing every request", async () => {
   const errors: string[] = [];
-  const mw = VetrixTech.nextjs({ connectionKey: "", syncUrl: "https://x.test/sync", onError: (e) => errors.push(e.message) });
+  const mw = SwarmTechShield.nextjs({ connectionKey: "", syncUrl: "https://x.test/sync", onError: (e) => errors.push(e.message) });
   const a = await mw(new Request("https://app.test/.env"));
   const b = await mw(new Request("https://app.test/.env"));
   assert.equal(a, undefined);
@@ -151,7 +154,7 @@ test("Express: an error thrown downstream goes to next(err), not an unhandled re
   const mock = await startMock();
   t.after(() => mock.close());
   mock.state.key = freshKey();
-  const mw = VetrixTech.express({ connectionKey: mock.state.key, syncUrl: mock.syncUrl });
+  const mw = SwarmTechShield.express({ connectionKey: mock.state.key, syncUrl: mock.syncUrl });
   const { req, res } = fakeExpress("198.51.100.1");
   const args: unknown[] = [];
   await new Promise<void>((resolve) => {
@@ -168,4 +171,9 @@ test("Express: an error thrown downstream goes to next(err), not an unhandled re
 
 test("IPv4-mapped addresses are normalised to plain IPv4", () => {
   assert.equal(cleanIp("::ffff:203.0.113.9"), "203.0.113.9");
+});
+
+test("the old VetrixTech name and the default export are the same object as SwarmTechShield", () => {
+  assert.equal(VetrixTech, SwarmTechShield);
+  assert.equal(DefaultExport, SwarmTechShield);
 });

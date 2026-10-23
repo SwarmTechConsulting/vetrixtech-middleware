@@ -15,6 +15,9 @@ export interface MockState {
   syncCalls: { client_version: unknown }[];
   logBatches: unknown[][];
   logStatus: number | null;
+  /** Force syncRuleCache to answer with this status (and Retry-After, if set). */
+  syncStatus: number | null;
+  syncRetryAfter: string | null;
 }
 
 export interface Mock {
@@ -36,6 +39,8 @@ export async function startMock(init: Partial<MockState> = {}): Promise<Mock> {
     syncCalls: [],
     logBatches: [],
     logStatus: null,
+    syncStatus: null,
+    syncRetryAfter: null,
     ...init,
   };
 
@@ -43,8 +48,8 @@ export async function startMock(init: Partial<MockState> = {}): Promise<Mock> {
     let raw = "";
     req.on("data", (c) => (raw += c));
     req.on("end", () => {
-      const send = (status: number, body: unknown) => {
-        res.writeHead(status, { "content-type": "application/json" });
+      const send = (status: number, body: unknown, extra: Record<string, string> = {}) => {
+        res.writeHead(status, { "content-type": "application/json", ...extra });
         res.end(JSON.stringify(body));
       };
       if (state.down) return send(503, { error: "unavailable" });
@@ -58,6 +63,9 @@ export async function startMock(init: Partial<MockState> = {}): Promise<Mock> {
 
       if (req.url === "/functions/syncRuleCache") {
         state.syncCalls.push({ client_version: body.client_version });
+        if (state.syncStatus) {
+          return send(state.syncStatus, { error: "forced" }, state.syncRetryAfter ? { "retry-after": state.syncRetryAfter } : {});
+        }
         if (!body.connection_key) return send(401, { error: "Missing connection_key" });
         if (!authorised) return send(401, { error: "Invalid or inactive connection key" });
         if (body.client_version != null && body.client_version === state.version) {

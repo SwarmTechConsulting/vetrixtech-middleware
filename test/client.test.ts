@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createClient, type VetrixOptions } from "../src/client.ts";
+import { createClient, retryAfterMs, type ShieldOptions } from "../src/client.ts";
 import { startMock, type Mock } from "./mock-server.ts";
 
 function clock(start = Date.parse("2026-10-10T12:00:00Z")) {
@@ -8,7 +8,7 @@ function clock(start = Date.parse("2026-10-10T12:00:00Z")) {
   return { now: () => t, advance: (ms: number) => (t += ms) };
 }
 
-function opts(mock: Mock, c: ReturnType<typeof clock>, extra: Partial<VetrixOptions> = {}): VetrixOptions {
+function opts(mock: Mock, c: ReturnType<typeof clock>, extra: Partial<ShieldOptions> = {}): ShieldOptions {
   return { connectionKey: mock.state.key, syncUrl: mock.syncUrl, logUrl: mock.logUrl, now: c.now, ...extra };
 }
 
@@ -68,7 +68,7 @@ test("forces a full download periodically even if the version number never chang
   assert.equal((await client.check({ ip: "203.0.113.9" })).verdict, "blocked");
 });
 
-test("fail open by default when VetrixTech is unreachable at start", async (t) => {
+test("fail open by default when SwarmTech Shield is unreachable at start", async (t) => {
   const mock = await startMock({ down: true });
   t.after(() => mock.close());
   const errors: string[] = [];
@@ -297,4 +297,39 @@ test("during a cold-start outage only the first request waits for rules", async 
   const rest = performance.now() - t2;
   assert.ok(first >= 250 && first < 1000, `first request waited ~300 ms (${first.toFixed(0)})`);
   assert.ok(rest < 100, `later requests did not wait (${rest.toFixed(0)} ms for 20)`);
+});
+
+test("a rate-limited sync keeps the last good rules and waits as long as the server asks", async (t) => {
+  const mock = await startMock({ rules: [blockRule("203.0.113.9")] });
+  t.after(() => mock.close());
+  const c = clock();
+  const errors: string[] = [];
+  const client = createClient(opts(mock, c, { logUrl: undefined, onError: (e) => errors.push(e.message) }));
+  assert.equal((await client.check({ ip: "203.0.113.9" })).verdict, "blocked");
+
+  mock.state.syncStatus = 429;
+  mock.state.syncRetryAfter = "120";
+  c.advance(31_000);
+  await (await client.check({ ip: "1.1.1.1" })).background;
+  const callsAfter429 = mock.state.syncCalls.length;
+  assert.match(errors.at(-1) ?? "", /rate-limited/);
+  assert.equal((await client.check({ ip: "203.0.113.9" })).verdict, "blocked", "last good rules still enforced");
+
+  c.advance(60_000); // past the normal 30 s interval, inside the 120 s Retry-After
+  await (await client.check({ ip: "1.1.1.1" })).background;
+  assert.equal(mock.state.syncCalls.length, callsAfter429, "no sync during the Retry-After window");
+
+  mock.state.syncStatus = null;
+  c.advance(61_000);
+  await (await client.check({ ip: "1.1.1.1" })).background;
+  assert.equal(mock.state.syncCalls.length, callsAfter429 + 1, "syncs again once the window has passed");
+  assert.equal(client.status().disabled, false);
+});
+
+test("Retry-After is read as seconds or a date and kept within 5 s to 5 min", () => {
+  assert.equal(retryAfterMs("120", 1000), 120_000);
+  assert.equal(retryAfterMs("1", 1000), 5_000);
+  assert.equal(retryAfterMs("99999", 1000), 300_000);
+  assert.equal(retryAfterMs(null, 30_000), 30_000);
+  assert.equal(retryAfterMs("Fri, 23 Oct 2026 10:01:00 GMT", 1000, Date.parse("2026-10-23T10:00:00Z")), 60_000);
 });

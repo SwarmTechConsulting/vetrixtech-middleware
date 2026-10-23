@@ -1,4 +1,4 @@
-// VetrixTech client: keeps a local copy of the app's rules, judges each request locally
+// SwarmTech Shield client: keeps a local copy of the app's rules, judges each request locally
 // with the shared engine, and ships traffic logs in the background.
 //
 // Nothing here makes a network call on the request path, except the very first sync
@@ -13,11 +13,11 @@ import {
   type Verdict,
 } from "./engine.ts";
 
-export const SDK_VERSION = "0.1.1";
+export const SDK_VERSION = "0.2.0";
 
 export type FailMode = "open" | "closed";
 
-export interface VetrixOptions {
+export interface ShieldOptions {
   /** The app's connection key (Admin Console → Connections). Keep it in an environment variable. */
   connectionKey: string;
   /** Full URL of the syncRuleCache function. */
@@ -31,7 +31,7 @@ export interface VetrixOptions {
   syncIntervalMs?: number;
   /** Ask for a full rule download at least this often, even if the version looks unchanged. Default 5 min. */
   fullSyncEveryMs?: number;
-  /** Keep enforcing the last good rules for this long if VetrixTech is unreachable. Default 15 min. */
+  /** Keep enforcing the last good rules for this long if SwarmTech Shield is unreachable. Default 15 min. */
   maxStaleMs?: number;
   /** Timeout for sync and log calls. Default 3 s. */
   requestTimeoutMs?: number;
@@ -41,7 +41,7 @@ export interface VetrixOptions {
   logFlushIntervalMs?: number;
   /** Max events per log call (the server accepts up to 100). Default 100. */
   logBatchSize?: number;
-  /** Max events held in memory while VetrixTech is unreachable; oldest are dropped. Default 5,000. */
+  /** Max events held in memory while SwarmTech Shield is unreachable; oldest are dropped. Default 5,000. */
   maxQueue?: number;
   /** Log allowed requests: true (all), false (none) or a sample rate 0–1. Blocked and throttled are always logged. Default true. */
   logAllowed?: boolean | number;
@@ -128,15 +128,29 @@ function nowPerf(): number {
   return typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
 }
 
+/** Retry-After (seconds or an HTTP date) as milliseconds, kept between 5 s and 5 min. */
+export function retryAfterMs(value: string | null | undefined, fallbackMs: number, nowMs = Date.now()): number {
+  let ms = fallbackMs;
+  if (value) {
+    const seconds = Number(value);
+    if (Number.isFinite(seconds)) ms = seconds * 1000;
+    else {
+      const date = Date.parse(value);
+      if (Number.isFinite(date)) ms = date - nowMs;
+    }
+  }
+  return Math.min(300_000, Math.max(5_000, ms));
+}
+
 function trunc(s: unknown, n: number): string {
   const str = s === undefined || s === null ? "" : String(s);
   return str.length > n ? str.slice(0, n) : str;
 }
 
-export class VetrixClient {
+export class ShieldClient {
   readonly opts: Required<
-    Omit<VetrixOptions, "logUrl" | "onError" | "fetch" | "now" | "burst">
-  > & Pick<VetrixOptions, "logUrl" | "onError" | "burst">;
+    Omit<ShieldOptions, "logUrl" | "onError" | "fetch" | "now" | "burst">
+  > & Pick<ShieldOptions, "logUrl" | "onError" | "burst">;
 
   private fetchImpl: typeof fetch;
   private clock: () => number;
@@ -167,11 +181,12 @@ export class VetrixClient {
   private flushing: Promise<void> | null = null;
   private lastFlush = 0;
   private logBackoffUntil = 0;
+  private syncBackoffUntil = 0;
   private timer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(options: VetrixOptions) {
-    if (!options || !options.connectionKey) throw new Error("VetrixTech: connectionKey is required");
-    if (!options.syncUrl) throw new Error("VetrixTech: syncUrl is required");
+  constructor(options: ShieldOptions) {
+    if (!options || !options.connectionKey) throw new Error("SwarmTech Shield: connectionKey is required");
+    if (!options.syncUrl) throw new Error("SwarmTech Shield: syncUrl is required");
     this.opts = {
       connectionKey: options.connectionKey,
       syncUrl: options.syncUrl,
@@ -194,7 +209,7 @@ export class VetrixClient {
       onError: options.onError,
     };
     const f = options.fetch ?? (typeof fetch !== "undefined" ? fetch : undefined);
-    if (!f) throw new Error("VetrixTech: no fetch implementation available; pass options.fetch");
+    if (!f) throw new Error("SwarmTech Shield: no fetch implementation available; pass options.fetch");
     this.fetchImpl = f.bind(globalThis) as typeof fetch;
     this.clock = options.now ?? (() => Date.now());
     this.lastFlush = this.clock();
@@ -219,7 +234,7 @@ export class VetrixClient {
 
       let result: Omit<CheckResult, "durationMs" | "background">;
       if (this.disabled) {
-        result = this.simple("allowed", "VetrixTech disabled: connection key rejected or app paused", "disabled");
+        result = this.simple("allowed", "SwarmTech Shield disabled: connection key rejected or app paused", "disabled");
       } else if (!this.lastSyncOk || now - this.lastSyncOk > this.opts.maxStaleMs) {
         const mode = this.serverFailMode ?? this.opts.failMode;
         result = mode === "closed"
@@ -357,7 +372,7 @@ export class VetrixClient {
     const now = this.clock();
     // Retry faster (every 5 s) while we have no rules at all.
     const interval = this.lastSyncOk ? this.opts.syncIntervalMs : Math.min(5_000, this.opts.syncIntervalMs);
-    if (this.syncing || now - this.lastSyncAttempt < interval) return null;
+    if (this.syncing || now - this.lastSyncAttempt < interval || now < this.syncBackoffUntil) return null;
     return this.sync();
   }
 
@@ -374,6 +389,14 @@ export class VetrixClient {
       if (res.status === 401 || res.status === 403) {
         this.disabled = true;
         this.report(new Error(`Sync rejected (${res.status}): connection key invalid, rotated, or app paused. Traffic is allowed through until this is fixed.`), "sync");
+        return;
+      }
+      if (res.status === 429) {
+        // The server is rate-limiting this app's syncs. Keep enforcing the rules we have
+        // and wait as long as it asks (bounded), instead of retrying every few seconds.
+        const waitMs = retryAfterMs(res.headers.get("retry-after"), 60_000);
+        this.syncBackoffUntil = this.clock() + waitMs;
+        this.report(new Error(`Sync rate-limited (429); next attempt in ${Math.round(waitMs / 1000)} s. Last good rules stay in force.`), "sync");
         return;
       }
       if (!res.ok) throw new Error(`Sync failed with HTTP ${res.status}`);
@@ -545,7 +568,7 @@ export class VetrixClient {
       }
       if (res.status === 429) {
         this.requeue(batch);
-        this.logBackoffUntil = this.clock() + 30_000;
+        this.logBackoffUntil = this.clock() + retryAfterMs(res.headers.get("retry-after"), 30_000);
         return;
       }
       if (!res.ok) throw new Error(`Log upload failed with HTTP ${res.status}`);
@@ -564,7 +587,7 @@ export class VetrixClient {
     try {
       return await this.fetchImpl(url, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-vetrixtech-sdk": SDK_VERSION },
+        headers: { "content-type": "application/json", "x-swarmtechshield-sdk": SDK_VERSION },
         body: JSON.stringify(body),
         signal: ctrl?.signal,
       });
@@ -605,18 +628,25 @@ export class VetrixClient {
 }
 
 /* One client per key+URL, so serverless isolates reuse their cache between requests. */
-const clients = new Map<string, VetrixClient>();
+const clients = new Map<string, ShieldClient>();
 
-export function getClient(options: VetrixOptions): VetrixClient {
+export function getClient(options: ShieldOptions): ShieldClient {
   const key = `${options.syncUrl}|${options.connectionKey}`;
   let c = clients.get(key);
   if (!c) {
-    c = new VetrixClient(options);
+    c = new ShieldClient(options);
     clients.set(key, c);
   }
   return c;
 }
 
-export function createClient(options: VetrixOptions): VetrixClient {
-  return new VetrixClient(options);
+export function createClient(options: ShieldOptions): ShieldClient {
+  return new ShieldClient(options);
 }
+
+/** @deprecated Use ShieldClient. Kept for code written against @vetrixtech/middleware. */
+export const VetrixClient = ShieldClient;
+/** @deprecated Use ShieldClient. */
+export type VetrixClient = ShieldClient;
+/** @deprecated Use ShieldOptions. */
+export type VetrixOptions = ShieldOptions;

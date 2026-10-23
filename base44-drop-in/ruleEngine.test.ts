@@ -1,5 +1,5 @@
 // Run in the Base44 project with:  deno test --allow-read base44/shared/ruleEngine.test.ts
-// Uses the same vectors.json as the @vetrixtech/middleware package, so both engines must agree.
+// Uses the same vectors.json as the @swarmtechshield/middleware package, so both engines must agree.
 import { evaluate } from "./ruleEngine.ts";
 
 const file = JSON.parse(await Deno.readTextFile(new URL("./vectors.json", import.meta.url)));

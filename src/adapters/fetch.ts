@@ -44,9 +44,9 @@ async function screen(
       reportedConfigError = true;
       const e = err instanceof Error ? err : new Error(String(err));
       if (options.onError) options.onError(e, "config");
-      else console.error(`[vetrixtech] ${e.message}. Requests are NOT being screened.`);
+      else console.error(`[swarmtechshield] ${e.message}. Requests are NOT being screened.`);
     }
-    return { ...ALLOWED_SKIPPED, source: "disabled", reason: "VetrixTech misconfigured" };
+    return { ...ALLOWED_SKIPPED, source: "disabled", reason: "SwarmTech Shield misconfigured" };
   }
   const get = (h: string) => req.headers.get(h);
   let ip = "";
@@ -72,13 +72,13 @@ async function screen(
 
 /**
  * Next.js middleware (middleware.ts):
- *   export const middleware = VetrixTech.nextjs({ connectionKey: process.env.VETRIXTECH_KEY!, syncUrl, logUrl });
+ *   export const middleware = SwarmTechShield.nextjs({ connectionKey: process.env.SWARMTECH_SHIELD_KEY!, syncUrl, logUrl });
  *
  * Client IP defaults to x-real-ip (set by Vercel), then X-Forwarded-For counted from the right.
  * Self-hosting behind your own proxy? Make sure it overwrites x-real-ip, or set trustedHeader.
  */
 export function nextjs(options: FetchAdapterOptions) {
-  return async function vetrixtechMiddleware(request: Request, event?: WaitUntilContext): Promise<Response | undefined> {
+  return async function swarmTechShieldMiddleware(request: Request, event?: WaitUntilContext): Promise<Response | undefined> {
     const result = await screen(request, options, { ipHeaders: ["x-real-ip"], countryHeader: "x-vercel-ip-country" });
     if (result.background) event?.waitUntil(result.background);
     return toResponse(result, options) ?? undefined;
@@ -89,8 +89,8 @@ export function nextjs(options: FetchAdapterOptions) {
 
 /**
  * Cloudflare Workers:
- *   const result = await VetrixTech.cloudflare(request, { connectionKey: env.VETRIXTECH_KEY, syncUrl, logUrl }, ctx);
- *   if (!result.allowed) return VetrixTech.toResponse(result);
+ *   const result = await SwarmTechShield.cloudflare(request, { connectionKey: env.SWARMTECH_SHIELD_KEY, syncUrl, logUrl }, ctx);
+ *   if (!result.allowed) return SwarmTechShield.toResponse(result);
  *
  * Client IP comes from CF-Connecting-IP and country from request.cf, both set by Cloudflare.
  */
@@ -113,8 +113,8 @@ export async function cloudflare(
 
 /**
  * Base44 backend functions (Deno):
- *   const result = await VetrixTech.base44(req, { connectionKey: Deno.env.get("VETRIXTECH_KEY")!, syncUrl, logUrl });
- *   if (!result.allowed) return VetrixTech.toResponse(result);
+ *   const result = await SwarmTechShield.base44(req, { connectionKey: Deno.env.get("SWARMTECH_SHIELD_KEY")!, syncUrl, logUrl });
+ *   if (!result.allowed) return SwarmTechShield.toResponse(result);
  *
  * There is no waitUntil here, so when a log flush is due this waits for it (at most
  * `backgroundWaitMs`, default 500 ms). Most requests do not wait at all.

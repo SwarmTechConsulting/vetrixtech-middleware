@@ -1,5 +1,5 @@
 {
-  "description": "Shared VetrixTech rule-engine test vectors. Every engine implementation (middleware package, Base44 backend) must produce these verdicts. counts maps a window in seconds to the number of requests from the IP in that window, including the current one ('default' applies to any window).",
+  "description": "Shared SwarmTech Shield rule-engine test vectors. Every engine implementation (middleware package, Base44 backend) must produce these verdicts. counts maps a window in seconds to the number of requests from the IP in that window, including the current one ('default' applies to any window).",
   "now": "2026-10-10T12:00:00.000Z",
   "vectors": [
     {

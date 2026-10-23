@@ -1,4 +1,4 @@
-import type { CheckResult, VetrixOptions } from "../client.ts";
+import type { CheckResult, ShieldOptions } from "../client.ts";
 import type { IpOptions } from "../ip.ts";
 
 export interface ResponseOptions {
@@ -12,7 +12,7 @@ export interface ResponseOptions {
   retryAfterSeconds?: number;
 }
 
-export interface AdapterOptions extends VetrixOptions, IpOptions, ResponseOptions {
+export interface AdapterOptions extends ShieldOptions, IpOptions, ResponseOptions {
   /** Header carrying the visitor's ISO country code, if your platform sets one. */
   countryHeader?: string;
 }

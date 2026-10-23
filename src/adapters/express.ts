@@ -1,7 +1,7 @@
 // Express / Connect middleware.
 //
 //   app.set("trust proxy", 1);           // so req.ip is the real client behind your load balancer
-//   app.use(VetrixTech.express({ connectionKey, syncUrl, logUrl }));
+//   app.use(SwarmTechShield.express({ connectionKey, syncUrl, logUrl }));
 //
 // By default the client IP is Express's req.ip, which follows your "trust proxy" setting.
 // Pass trustedHeader / trustedProxyCount / getClientIp to override.
@@ -18,6 +18,8 @@ export interface ExpressLikeRequest {
   url?: string;
   headers: Record<string, string | string[] | undefined>;
   socket?: { remoteAddress?: string; localPort?: number };
+  swarmtechshield?: CheckResult;
+  /** @deprecated Same object as `swarmtechshield`; kept for code written against @vetrixtech/middleware. */
   vetrixtech?: CheckResult;
 }
 export interface ExpressLikeResponse {
@@ -48,7 +50,7 @@ export function express(options: ExpressOptions) {
   const client = getClient({ timers: true, ...options });
   const useHeaders = !!(options.trustedHeader || options.trustedProxyCount);
 
-  return function vetrixtech(req: ExpressLikeRequest, res: ExpressLikeResponse, next: NextFunction): void {
+  return function swarmTechShield(req: ExpressLikeRequest, res: ExpressLikeResponse, next: NextFunction): void {
     // Errors thrown by later handlers go to Express's error handling (as Express itself does),
     // never into this promise chain, where they would become unhandled rejections.
     const proceed = () => {
@@ -82,6 +84,7 @@ export function express(options: ExpressOptions) {
         port: req.socket?.localPort,
       })
       .then((result) => {
+        req.swarmtechshield = result;
         req.vetrixtech = result;
         if (result.allowed) return proceed();
         if (options.onBlocked) return options.onBlocked(req, res, next, result);
