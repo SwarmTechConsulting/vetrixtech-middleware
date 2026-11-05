@@ -1,6 +1,6 @@
 {
   "name": "@swarmtechshield/middleware",
-  "version": "0.2.0",
+  "version": "0.5.0",
   "description": "Drop-in SwarmTech Shield request screening for Express, Next.js, Cloudflare Workers and Base44/Deno. Rules are evaluated locally from a synced cache; logs are sent in the background.",
   "license": "MIT",
   "repository": {
@@ -32,12 +32,25 @@
         "default": "./dist/cjs/engine.js"
       }
     },
+    "./node": {
+      "import": {
+        "types": "./dist/esm/node.d.ts",
+        "default": "./dist/esm/node.js"
+      },
+      "require": {
+        "types": "./dist/cjs/node.d.ts",
+        "default": "./dist/cjs/node.js"
+      }
+    },
     "./package.json": "./package.json"
   },
   "typesVersions": {
     "*": {
       "engine": [
         "./dist/cjs/engine.d.ts"
+      ],
+      "node": [
+        "./dist/cjs/node.d.ts"
       ]
     }
   },

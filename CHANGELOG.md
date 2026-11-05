@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+## 0.5.0 (2026-10-29)
+
+Resilience against application-layer floods. (Network-level DDoS needs an edge network in front; see the roadmap's Phase G.)
+
+- **Under-attack mode.** Switched on by the console (`under_attack` in the sync response), from your code (`client.setUnderAttack(true)` or `resilience: { underAttack: true }`), or automatically when traffic runs at 5x its recent median and at least 50 requests a second for 20 seconds. It switches off after a calm minute. While on, the per-IP burst limit drops from 120 to 60 requests a minute, and request inspection blocks instead of only observing.
+- **Load shedding.** On long-running servers (Express, or any client with `timers: true`), the middleware watches event-loop lag. Above 200 ms, anonymous requests to low-priority paths get a fast `503` with `Retry-After`; login, checkout, health checks, signed-in users (`getUser`) and allow-listed IPs are kept. Bring your own load metric with `resilience.loadProbe`. Shed requests are summarised in one log event every 30 seconds instead of one event each.
+- **Early rejection.** A request from a blocked IP, or one that will be shed, no longer has its body read, so rejecting a flood costs almost nothing.
+- `status().resilience` reports the request rate, baseline, load, under-attack state and shed count.
+
+## 0.4.0 (2026-10-29)
+
+Active defences that only an in-app middleware can provide.
+
+- **Decoys and canary credentials.** Trap routes (`/.env`, `/.git/config`, `/wp-admin`, `/phpmyadmin` and similar) that no real visitor requests. Touching one blocks the request and the IP on that server. Bait paths answer with a believable fake file carrying canary credentials derived from the connection key; anyone who later presents one of those values in any request is identified with near certainty. A hidden form field (`website_url` by default, see `honeypotFieldHtml()`) catches automated form submissions. On by default; `decoys: false` turns it off. Allow rules still win, and explicit rules and the blocklist are untouched.
+- **Login, payment and sign-up protection.** The app reports outcomes with `reportOutcome({ type, ip, user, success, fingerprint })`. The middleware then limits failed logins per account (catching credential stuffing spread across many IPs), the number of accounts tried from one IP, card testing (many cards from one IP or account on checkout paths) and sign-up bursts. Adapters take a `getUser(req)` option. Inert until you report outcomes.
+- **Dependency-matched virtual patches.** Pass `dependencies` (or use `detectDependencies()` from the new `@swarmtechshield/middleware/node` entry). The client sends the list with full syncs and applies `virtual_patches` from the sync response only when the installed version is in the affected range, with the advisory and the fixed version in the block reason.
+- **Signed verification probes.** The SwarmTech Shield checker can prove a route is protected: a probe signed with the connection key (HMAC-SHA256, 5-minute window, single use) gets `x-shield-status`, and a `test-block` probe gets a 403 with `x-shield-test: blocked`, without being logged as an attack. Unsigned or replayed probes are ignored. `decorate(response, result)` adds the header on allowed responses.
+- `status()` now reports the inspection mode, whether decoys are on, and the active virtual patches.
+
+## 0.3.0 (2026-10-23)
+
+- **Deep request inspection.** A new scoring engine (`inspect`) checks the path, query string, headers, cookies and body for SQL injection, cross-site scripting, path traversal, command injection, SSRF, template injection, XXE, NoSQL injection, prototype pollution, Log4Shell-style lookups and probes for sensitive files. Findings are scored the way the OWASP Core Rule Set works: one high-confidence finding, or several weaker ones together, cross the block threshold.
+  - On by default in **observe mode**, so it reports what it would block without changing any verdict. Set `inspection: true` to block, or pass a config object (`{ mode, paranoia, threshold, autoBlockScore, exclusions, disabledRules }`).
+  - Four paranoia levels. Level 1 (default) is high-confidence only; higher levels catch more and flag more, so raise them per app after watching observe-mode output.
+  - The Express and fetch adapters now read the request body (within a 64 KB cap, configurable with `maxBodyBytes`) and pass the headers, so inspection sees the whole request. The original body is never consumed.
+  - A high-scoring request (score 10+) also blocklists the IP on that server for `localBlockSeconds`; a single threshold hit blocks only that request.
+  - Allow rules still win over inspection, and the legacy path-signature scan is superseded only when inspection is actively blocking, so enabling it never reduces protection.
+  - A built-in attack/normal test corpus checks detection stays at or above 95% and false positives at or below 2%.
+
 ## 0.2.0 (2026-10-23)
 
 - **Renamed to `@swarmtechshield/middleware`**, following the product's rename from VetrixTech to SwarmTech Shield. The main export is now `SwarmTechShield`, with `ShieldClient` and `ShieldOptions`. Express puts the result on `req.swarmtechshield`. The old names (`VetrixTech`, `VetrixClient`, `VetrixOptions`, `req.vetrixtech`) still work as aliases.

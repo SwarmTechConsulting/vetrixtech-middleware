@@ -17,6 +17,8 @@ export interface ExpressLikeRequest {
   originalUrl?: string;
   url?: string;
   headers: Record<string, string | string[] | undefined>;
+  /** Parsed body, if a body parser (express.json / express.urlencoded) ran before this middleware. */
+  body?: unknown;
   socket?: { remoteAddress?: string; localPort?: number };
   swarmtechshield?: CheckResult;
   /** @deprecated Same object as `swarmtechshield`; kept for code written against @vetrixtech/middleware. */
@@ -39,6 +41,19 @@ export interface ExpressOptions extends AdapterOptions {
   skip?: (req: ExpressLikeRequest) => boolean;
   /** Custom handling for blocked or throttled requests. */
   onBlocked?: (req: ExpressLikeRequest, res: ExpressLikeResponse, next: NextFunction, result: CheckResult) => void;
+}
+
+function setHeader(res: ExpressLikeResponse, k: string, v: string) {
+  if (res.set) res.set(k, v);
+  else res.setHeader?.(k, v);
+}
+
+function safeUser(options: ExpressOptions, req: ExpressLikeRequest): string | undefined {
+  try {
+    return options.getUser?.(req);
+  } catch {
+    return undefined;
+  }
 }
 
 function header(req: ExpressLikeRequest, name: string): string | undefined {
@@ -82,13 +97,33 @@ export function express(options: ExpressOptions) {
         bodySize: bodySizeFrom(header(req, "content-length")),
         country: options.countryHeader ? header(req, options.countryHeader) : undefined,
         port: req.socket?.localPort,
+        headers: req.headers,
+        // Inspect the body only when a body parser has already populated req.body.
+        // This middleware never reads the raw stream itself, so it can't interfere with your handlers.
+        body: options.inspection === false && options.decoys === false ? undefined : req.body,
+        contentType: header(req, "content-type"),
+        user: safeUser(options, req),
       })
       .then((result) => {
         req.swarmtechshield = result;
         req.vetrixtech = result;
+        if (result.verification && !res.headersSent) {
+          for (const [k, v] of Object.entries(result.verification.headers)) setHeader(res, k, v);
+        }
         if (result.allowed) return proceed();
-        if (options.onBlocked) return options.onBlocked(req, res, next, result);
+        if (options.onBlocked && !result.decoy) return options.onBlocked(req, res, next, result);
         if (res.headersSent) return;
+        if (result.shed) {
+          setHeader(res, "Retry-After", String(result.retryAfterSeconds ?? 5));
+          res.status(503).send("Service Unavailable");
+          return;
+        }
+        if (result.decoy) {
+          setHeader(res, "Content-Type", result.decoy.contentType);
+          setHeader(res, "Cache-Control", "no-store");
+          res.status(result.decoy.status).send(result.decoy.body);
+          return;
+        }
         if (result.throttled) {
           const retry = String(options.retryAfterSeconds ?? 60);
           if (res.set) res.set("Retry-After", retry);

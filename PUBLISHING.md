@@ -1,12 +1,12 @@
 # Publishing @swarmtechshield/middleware
 
-The package was first published as `@vetrixtech/middleware` (0.1.0). From 0.2.0 it is `@swarmtechshield/middleware`. Because the new name is a new package on npm, its first version goes out from your computer, like 0.1.0 did. Every version after that is published from GitHub by clicking "Publish release".
+The package was first published as `@vetrixtech/middleware` (0.1.0) and is now `@swarmtechshield/middleware`. If the new name has never been published to npm, its first version goes out from your computer (Part A), like 0.1.0 did. If it has, skip to Part B. Every version after that is published from GitHub by clicking "Publish release".
 
 The GitHub repository keeps its name, `SwarmTechConsulting/vetrixtech-middleware`. Only the npm package name changes.
 
 ---
 
-## Part A: Release 0.2.0 under the new name (once, about 20 min)
+## Part A: Release 0.5.0 under the new name (once, about 20 min)
 
 ### A1. Create the npm organisation
 
@@ -15,32 +15,29 @@ The GitHub repository keeps its name, `SwarmTechConsulting/vetrixtech-middleware
 3. Choose the free **Unlimited public packages** plan and click **Create**. Skip the invite page by clicking **Continue**.
    - If npm says `swarmtechshield` is taken, stop and tell me before doing anything else.
 
-### A2. Put the new files in your repository folder
+### A2. Get the code
 
-Unzip `swarmtechshield-middleware.zip` into Downloads, then run:
+After the 0.5.0 pull request is merged:
 
 ```bash
-cp -r ~/Downloads/swarmtechshield-middleware/. "/home/michaelnieman/Downloads/vetrixtech-middleware(2)/vetrixtech-middleware/"
-cd "/home/michaelnieman/Downloads/vetrixtech-middleware(2)/vetrixtech-middleware"
+git clone https://github.com/SwarmTechConsulting/vetrixtech-middleware.git
+cd vetrixtech-middleware
 npm install
 npm test
 ```
 
-`npm test` should finish with `# pass 99` and `# fail 0`.
+`npm test` should finish with `# fail 0`.
 
-### A3. Save it to GitHub
+### A3. Tag the version
 
-The version is already set to 0.2.0, so don't run `npm version` this time. Commit, tag and push:
+The version is already 0.5.0, so don't run `npm version` this time:
 
 ```bash
-git add .
-git commit -m "Rename to @swarmtechshield/middleware 0.2.0"
-git tag v0.2.0
-git push
-git push origin v0.2.0
+git tag v0.5.0
+git push origin v0.5.0
 ```
 
-Do **not** create a GitHub release for v0.2.0. A release would start the publish workflow, which can't publish a package npm doesn't know yet.
+Do **not** create a GitHub release for v0.5.0 yet. A release starts the publish workflow, which can't publish a package npm doesn't know yet.
 
 ### A4. Publish from your computer
 
@@ -48,7 +45,7 @@ In the same folder:
 
 ```bash
 npm whoami
-npm publish
+npm publish --access public
 ```
 
 - If `npm whoami` doesn't print your npm username, run `npm login` first.
@@ -82,11 +79,9 @@ npm deprecate @vetrixtech/middleware "Renamed to @swarmtechshield/middleware. In
 
 Anyone installing the old name now sees that message. Code already using it keeps working.
 
-### A7. Update the Base44 app
+### A7. Update the SwarmTech Shield app
 
-Paste this into the Base44 builder:
-
-> In src/components/install/FrameworkGuides.jsx, change the Base44 import to `npm:@swarmtechshield/middleware@0.2.0`. The other snippets already use `@swarmtechshield/middleware` and `SwarmTechShield`; keep them as they are.
+In the swarmtech-shield repository, set `MIDDLEWARE_VERSION` in `src/lib/middlewareVersion.js` to the new version. The Base44/Deno install guide reads it from there.
 
 ---
 
