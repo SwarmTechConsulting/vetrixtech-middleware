@@ -1,12 +1,12 @@
 # Publishing @swarmtechshield/middleware
 
-The package was first published as `@vetrixtech/middleware` (0.1.0). From 0.2.0 it is `@swarmtechshield/middleware`. Because the new name is a new package on npm, its first version goes out from your computer, like 0.1.0 did. Every version after that is published from GitHub by clicking "Publish release".
+The package was first published as `@vetrixtech/middleware` (0.1.0). From 0.5.0 it is `@swarmtechshield/middleware`. Because the new name is a new package on npm, its first version goes out from your computer, like 0.1.0 did. Every version after that is published from GitHub by clicking "Publish release".
 
 The GitHub repository keeps its name, `SwarmTechConsulting/vetrixtech-middleware`. Only the npm package name changes.
 
 ---
 
-## Part A: Release 0.2.0 under the new name (once, about 20 min)
+## Part A: Release 0.5.0 under the new name (once, about 20 min)
 
 ### A1. Create the npm organisation
 
@@ -30,17 +30,17 @@ npm test
 
 ### A3. Save it to GitHub
 
-The version is already set to 0.2.0, so don't run `npm version` this time. Commit, tag and push:
+This build is 0.5.0 and replaces the earlier 0.2.0, 0.3.0 and 0.4.0 zips; publish this one. The version is already set to 0.5.0, so don't run `npm version` this time. Commit, tag and push:
 
 ```bash
 git add .
-git commit -m "Rename to @swarmtechshield/middleware 0.2.0"
-git tag v0.2.0
+git commit -m "SwarmTech Shield middleware 0.5.0: inspection, active defences and resilience"
+git tag v0.5.0
 git push
-git push origin v0.2.0
+git push origin v0.5.0
 ```
 
-Do **not** create a GitHub release for v0.2.0. A release would start the publish workflow, which can't publish a package npm doesn't know yet.
+Do **not** create a GitHub release for v0.5.0. A release would start the publish workflow, which can't publish a package npm doesn't know yet.
 
 ### A4. Publish from your computer
 
@@ -86,7 +86,7 @@ Anyone installing the old name now sees that message. Code already using it keep
 
 Paste this into the Base44 builder:
 
-> In src/components/install/FrameworkGuides.jsx, change the Base44 import to `npm:@swarmtechshield/middleware@0.2.0`. The other snippets already use `@swarmtechshield/middleware` and `SwarmTechShield`; keep them as they are.
+> In src/components/install/FrameworkGuides.jsx, change the Base44 import to `npm:@swarmtechshield/middleware@0.5.0`. The other snippets already use `@swarmtechshield/middleware` and `SwarmTechShield`; keep them as they are.
 
 ---
 

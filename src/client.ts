@@ -6,14 +6,32 @@
 
 import {
   evaluate,
+  ipMatches,
+  isBlockActive,
   scopeMatches,
   type BlockEntry,
   type Decision,
   type Rule,
   type Verdict,
 } from "./engine.ts";
+import { inspect, type InspectionConfig, type InspectionMode, type Finding } from "./inspect.ts";
+import {
+  Decoys,
+  OutcomeTracker,
+  ProbeVerifier,
+  VirtualPatches,
+  PROBE_HEADER,
+  type ActivePatch,
+  type DecoyOptions,
+  type DecoyResponse,
+  type OutcomeConfig,
+  type OutcomeReport,
+  type ProbeResult,
+  type VirtualPatch,
+} from "./defence.ts";
+import { Resilience, type ResilienceOptions, type ResilienceState } from "./resilience.ts";
 
-export const SDK_VERSION = "0.2.0";
+export const SDK_VERSION = "0.5.0";
 
 export type FailMode = "open" | "closed";
 
@@ -53,6 +71,24 @@ export interface ShieldOptions {
   burst?: { maxRequests: number; windowSeconds: number } | false;
   /** Signature and scanner auto-detection. Default true. */
   autoDetection?: boolean;
+  /** Deep request inspection (SQLi, XSS, RCE, traversal, SSRF and more) over the path, query,
+   *  headers, cookies and body. Pass true for defaults, false to turn it off, or a config object.
+   *  Default: on in observe mode, so it reports without blocking until you raise it to "block". */
+  inspection?: boolean | InspectionConfig;
+  /** Decoy routes, a hidden form field and canary credentials. Default on. false disables. */
+  decoys?: boolean | DecoyOptions;
+  /** Login, payment and sign-up protection fed by reportOutcome(). Default on (inert until you report outcomes). */
+  outcomes?: boolean | OutcomeConfig;
+  /** Installed package versions ({ name: version }), so virtual patches only switch on for affected versions.
+   *  On Node, fill it with detectDependencies() from "@swarmtechshield/middleware/node". */
+  dependencies?: Record<string, string>;
+  /** Send the dependency list (names and versions only) with full rule syncs, so the server can send matching
+   *  virtual patches. Default true. */
+  reportDependencies?: boolean;
+  /** Answer signed verification probes from the SwarmTech Shield checker. Default true. */
+  verification?: boolean;
+  /** Under-attack mode and load shedding for application-layer floods. Default on. false disables. */
+  resilience?: ResilienceOptions | false;
   /** Run background timers for sync and log flushing (long-running servers only). Default false. */
   timers?: boolean;
   /** Called on sync/log failures and configuration problems. Never throws into your app. */
@@ -72,6 +108,14 @@ export interface RequestInfo {
   bodySize?: number;
   country?: string;
   port?: number;
+  /** Request headers, for deep inspection. Optional; inspection still runs on the URL without them. */
+  headers?: Record<string, string | string[] | undefined>;
+  /** Parsed body (object/array) or raw text, for deep inspection. Read it with a size cap in your adapter. */
+  body?: unknown;
+  /** The body's content type, used to parse a string body. */
+  contentType?: string;
+  /** The signed-in account (id, username or email), for per-account login and payment limits. */
+  user?: string;
 }
 
 export type CheckSource = "rules" | "fail_open" | "fail_closed" | "disabled";
@@ -88,6 +132,16 @@ export interface CheckResult {
   durationMs: number;
   /** Background work (rule refresh, log flush). Pass to waitUntil() on serverless platforms. */
   background?: Promise<void>;
+  /** Set when a decoy was touched: the response to send (a 404, or bait carrying canary credentials). */
+  decoy?: DecoyResponse;
+  /** Set for a verified probe from the SwarmTech Shield checker. */
+  verification?: ProbeResult & { headers: Record<string, string> };
+  /** Set when a dependency-matched virtual patch blocked the request. */
+  patch?: ActivePatch;
+  /** Set when the request was shed because the server is overloaded (send a 503). */
+  shed?: boolean;
+  /** Seconds to put in Retry-After for a shed request. */
+  retryAfterSeconds?: number;
 }
 
 interface LogEvent {
@@ -115,6 +169,10 @@ interface SyncResponse {
   fail_mode?: string;
   rules?: Rule[];
   blocklist?: BlockEntry[];
+  /** Under-attack mode switched on from the console. */
+  under_attack?: boolean;
+  /** Virtual patches; the client keeps those that affect its installed dependencies. */
+  virtual_patches?: VirtualPatch[];
   error?: string;
 }
 
@@ -147,10 +205,35 @@ function trunc(s: unknown, n: number): string {
   return str.length > n ? str.slice(0, n) : str;
 }
 
+function headerOf(headers: RequestInfo["headers"], name: string): string | undefined {
+  if (!headers) return undefined;
+  for (const [k, v] of Object.entries(headers)) if (k.toLowerCase() === name) return Array.isArray(v) ? v[0] : v;
+  return undefined;
+}
+
+/** Turn the `inspection` option into a config, or null when off.
+ *  Default (undefined): on in observe mode, so new installs report without blocking. */
+function resolveInspection(opt: boolean | InspectionConfig | undefined): InspectionConfig | null {
+  if (opt === false) return null;
+  if (opt === true || opt === undefined) return { mode: opt === true ? "block" : "observe", autoBlockScore: 10 };
+  if (opt.mode === "off") return null;
+  return { autoBlockScore: 10, ...opt };
+}
+
 export class ShieldClient {
   readonly opts: Required<
-    Omit<ShieldOptions, "logUrl" | "onError" | "fetch" | "now" | "burst">
+    Omit<ShieldOptions, "logUrl" | "onError" | "fetch" | "now" | "burst" | "inspection" | "decoys" | "outcomes" | "dependencies" | "reportDependencies" | "verification" | "resilience">
   > & Pick<ShieldOptions, "logUrl" | "onError" | "burst">;
+
+  /** Resolved inspection config, or null when inspection is off. */
+  readonly inspectionConfig: InspectionConfig | null;
+  private decoys: Decoys | null;
+  private outcomes: OutcomeTracker | null;
+  private patches = new VirtualPatches();
+  private probes: ProbeVerifier | null;
+  private reportDeps: boolean;
+  private resilience: Resilience | null;
+  private shedLog = { count: 0, at: 0 };
 
   private fetchImpl: typeof fetch;
   private clock: () => number;
@@ -208,12 +291,22 @@ export class ShieldClient {
       timers: options.timers ?? false,
       onError: options.onError,
     };
+    this.inspectionConfig = resolveInspection(options.inspection);
+    this.decoys = options.decoys === false ? null : new Decoys(options.connectionKey, options.decoys === true ? {} : options.decoys || {});
+    this.outcomes = options.outcomes === false ? null : new OutcomeTracker(options.outcomes === true ? undefined : options.outcomes, () => this.clock());
+    this.patches.setDependencies(options.dependencies);
+    this.reportDeps = options.reportDependencies !== false;
+    this.probes = options.verification === false ? null : new ProbeVerifier(options.connectionKey, () => this.clock());
+    this.resilience = options.resilience === false ? null : new Resilience(options.resilience || {}, () => this.clock());
     const f = options.fetch ?? (typeof fetch !== "undefined" ? fetch : undefined);
     if (!f) throw new Error("SwarmTech Shield: no fetch implementation available; pass options.fetch");
     this.fetchImpl = f.bind(globalThis) as typeof fetch;
     this.clock = options.now ?? (() => Date.now());
     this.lastFlush = this.clock();
-    if (this.opts.timers) this.startTimers();
+    if (this.opts.timers) {
+      this.startTimers();
+      this.resilience?.startMonitor();
+    }
   }
 
   /* ---------------- public API ---------------- */
@@ -223,6 +316,7 @@ export class ShieldClient {
     const t0 = nowPerf();
     try {
       await this.ensureFirstSync();
+      if (this.decoys) await this.decoys.whenReady();
       const background: Promise<void>[] = [];
       const refresh = this.maybeRefresh();
       if (refresh) background.push(refresh);
@@ -251,6 +345,52 @@ export class ShieldClient {
         const blocklist = local && local.until > now
           ? [...this.blocklist, { ip_or_range: ip, reason: local.reason, expires_at: new Date(local.until).toISOString(), source: "local" }]
           : this.blocklist;
+        this.resilience?.record(now);
+        const underAttack = this.resilience?.underAttack() ?? false;
+
+        // Load shedding: when the server is overloaded, low-priority anonymous requests get a
+        // cheap 503 before any inspection work. Allow rules (e.g. your health checks) still pass.
+        if (this.resilience?.shouldShed(path, info.user)) {
+          const pre = evaluate(
+            { source_ip: ip, method, path, country: info.country || "", user_agent: info.userAgent || "" },
+            { rules: this.rules, blocklist, now, burst: false, autoDetection: false },
+          );
+          if (!(pre.verdict === "allowed" && pre.triggered?.action === "allow")) {
+            this.resilience.shedCount++;
+            this.noteShed(now);
+            const flush = this.maybeFlush();
+            if (flush) background.push(flush);
+            return {
+              ...this.simple("throttled", "Load shedding: server overloaded", "rules"),
+              shed: true,
+              retryAfterSeconds: this.resilience.retryAfterSeconds,
+              durationMs: Math.round((nowPerf() - t0) * 100) / 100,
+              background: background.length ? Promise.all(background).then(() => undefined) : undefined,
+            };
+          }
+        }
+
+        // Under attack, inspection blocks instead of only observing.
+        const inspectionConfig =
+          this.inspectionConfig && underAttack && this.resilience!.enforceInspection && this.inspectionConfig.mode === "observe"
+            ? { ...this.inspectionConfig, mode: "block" as const }
+            : this.inspectionConfig;
+        let inspection = null;
+        if (inspectionConfig) {
+          const r = inspect(
+            { method, path, headers: info.headers, body: info.body, contentType: info.contentType },
+            inspectionConfig,
+          );
+          const autoBlockScore = inspectionConfig.autoBlockScore ?? 10;
+          inspection = {
+            matched: r.matched,
+            mode: r.mode,
+            score: r.score,
+            threshold: r.threshold,
+            autoBlock: autoBlockScore > 0 && r.score >= autoBlockScore,
+            findings: r.findings.map((f: Finding) => ({ rule: f.rule, category: f.category, description: f.description, score: f.score, location: f.location, name: f.name })),
+          };
+        }
         const decision = evaluate(
           {
             source_ip: ip,
@@ -266,8 +406,9 @@ export class ShieldClient {
             blocklist,
             now,
             rateCount: ip ? (win, scope) => this.countHits(ip, win, scope, now) : undefined,
-            burst: this.opts.burst,
+            burst: underAttack ? this.resilience!.burst : this.opts.burst,
             autoDetection: this.opts.autoDetection,
+            inspection,
           },
         );
         if (decision.autoBlock && ip) {
@@ -282,6 +423,59 @@ export class ShieldClient {
           source: "rules",
           decision,
         };
+
+        // Active defences. An allow rule still wins; a request already blocked stays blocked.
+        const allowRuleWon = decision.verdict === "allowed" && decision.triggered?.action === "allow";
+        // Automatic detection (signatures, inspection) may already have blocked a trap path. A decoy
+        // still answers it, because serving bait is worth more than a plain 403. Explicit rules and
+        // the blocklist are left alone.
+        const autoBlocked = decision.verdict === "blocked" && decision.triggered?.id === "auto";
+        const input = { method, path, headers: info.headers, body: info.body, contentType: info.contentType };
+        if (autoBlocked && this.decoys) {
+          const decoy = this.decoys.check(input, info.headers || {});
+          if (decoy && decoy.kind === "trap") {
+            result = this.override(decision, "blocked", decoy.reason, { id: "decoy", name: `Decoy: ${decoy.kind}`, type: "pattern", action: "block" }, "Decoy");
+            if (decoy.response) result.decoy = decoy.response;
+            if (ip && this.decoys.opts.blockIp) this.localBlocks.set(ip, { until: now + this.opts.localBlockSeconds * 1000, reason: decoy.reason });
+          }
+        }
+        if (decision.verdict === "allowed" && !allowRuleWon) {
+          const decoy = this.decoys?.check(input, info.headers || {}) ?? null;
+          const patch = decoy ? null : this.patches.match(input);
+          const outcome = decoy || patch ? null : this.outcomes?.check(path, ip, info.user) ?? null;
+          if (decoy) {
+            if (ip && this.decoys!.opts.blockIp && decoy.kind !== "form_field") {
+              this.localBlocks.set(ip, { until: now + this.opts.localBlockSeconds * 1000, reason: decoy.reason });
+            }
+            result = this.override(decision, "blocked", decoy.reason, { id: "decoy", name: `Decoy: ${decoy.kind}`, type: "pattern", action: "block" }, "Decoy");
+            if (decoy.response) result.decoy = decoy.response;
+          } else if (patch) {
+            const reason = `Virtual patch ${patch.advisory || patch.id}: ${patch.package}@${patch.installed} is affected${patch.fixed ? `; upgrade to ${patch.fixed}` : ""}`;
+            result = this.override(decision, "blocked", reason, { id: patch.id, name: `Virtual patch: ${patch.package}`, type: "pattern", action: "block" }, "Virtual patch");
+            result.patch = patch;
+          } else if (outcome) {
+            const verdict = outcome.action === "block" ? "blocked" : "throttled";
+            result = this.override(decision, verdict, `${outcome.type === "payment" ? "Payment" : outcome.type === "login" ? "Login" : "Sign-up"} protection: ${outcome.reason}`, { id: `outcome:${outcome.type}`, name: `${outcome.type} protection`, type: "rate_limit", action: outcome.action }, "Outcome protection");
+          }
+        }
+      }
+
+      // Signed probes from the checker: prove this route is protected, without logging an attack.
+      let verification: CheckResult["verification"];
+      if (this.probes && result.source !== "disabled") {
+        const probe = await this.probes.verify(headerOf(info.headers, PROBE_HEADER), method, path);
+        if (probe) {
+          const inspectionMode = this.inspectionConfig?.mode ?? "off";
+          verification = {
+            ...probe,
+            headers: { "x-shield-status": `active; sdk=${SDK_VERSION}; rules=${this.version ?? "none"}; inspection=${inspectionMode}; source=${result.source}` },
+          };
+          if (probe.mode === "test-block") {
+            verification.headers["x-shield-test"] = "blocked";
+            const durationMs = Math.round((nowPerf() - t0) * 100) / 100;
+            return { ...this.simple("blocked", "Verification test (signed probe)", result.source), durationMs, verification };
+          }
+        }
       }
 
       const durationMs = Math.round((nowPerf() - t0) * 100) / 100;
@@ -291,6 +485,7 @@ export class ShieldClient {
 
       return {
         ...result,
+        ...(verification ? { verification } : {}),
         durationMs,
         background: background.length ? Promise.all(background).then(() => undefined) : undefined,
       };
@@ -302,6 +497,95 @@ export class ShieldClient {
         : this.simple("allowed", "Fail open: internal error", "fail_open");
       return { ...r, durationMs: Math.round((nowPerf() - t0) * 100) / 100 };
     }
+  }
+
+  /** Switch under-attack mode on or off from your code (the console can also switch it). */
+  setUnderAttack(on: boolean): void {
+    this.resilience?.setLocalFlag(on);
+  }
+
+  /**
+   * True when this request will be rejected whatever its body says (blocked IP, or shed under
+   * load). Adapters use it to skip reading the body, so rejecting a flood costs almost nothing.
+   */
+  rejectsEarly(ip: string, path: string, user?: string): boolean {
+    const now = this.clock();
+    if (!ip) return !!this.resilience?.shouldShed(path, user);
+    const local = this.localBlocks.get(ip);
+    if (local && local.until > now) return true;
+    for (const e of this.blocklist) {
+      if (e.app_id) continue;
+      if (isBlockActive(e, now) && ipMatches(ip, e.ip_or_range)) return true;
+    }
+    return !!this.resilience?.shouldShed(path, user);
+  }
+
+  /** One summary log event per 30 s while shedding, instead of one per shed request. */
+  private noteShed(now: number) {
+    if (!this.opts.logUrl || !this.resilience) return;
+    if (now - this.shedLog.at < 30_000) return;
+    const count = this.resilience.shedCount - this.shedLog.count;
+    this.shedLog = { count: this.resilience.shedCount, at: now };
+    if (count <= 0) return;
+    const st = this.resilience.state();
+    this.priorityQueue.push({
+      source_ip: "",
+      method: "-",
+      path: "(load shedding)",
+      port: null,
+      country: "",
+      user_agent: "",
+      body_size: 0,
+      verdict: "throttled",
+      screening_ms: 0,
+      rule_id: "load-shedding",
+      rule_name: "Load shedding",
+      rule_type: "rate_limit",
+      reason: `Shed ${count} low-priority request(s): server overloaded (load ${st.loadMs} ms)`,
+      is_incident: true,
+      details: { source: "middleware", sdk_version: SDK_VERSION, shed_count: count, under_attack: st.underAttack },
+    });
+    this.trimQueues();
+  }
+
+  /** Tell the middleware how a login, payment or sign-up attempt went. Never throws. */
+  reportOutcome(report: OutcomeReport): void {
+    try {
+      this.outcomes?.report(report);
+    } catch (err) {
+      this.report(err as Error, "outcome");
+    }
+  }
+
+  /** Replace the installed-dependency list (e.g. after detectDependencies() resolves). */
+  setDependencies(deps: Record<string, string>): void {
+    this.patches.setDependencies(deps);
+  }
+
+  /** The canary credential values planted in bait files (to register with alerting). */
+  canaryValues(): string[] {
+    return this.decoys?.canaryValues() ?? [];
+  }
+
+  private override(
+    decision: Decision,
+    verdict: Verdict,
+    reason: string,
+    triggered: NonNullable<Decision["triggered"]>,
+    check: string,
+  ): Omit<CheckResult, "durationMs" | "background"> {
+    const trace = decision.trace.filter((t) => t.check !== "Final verdict");
+    trace.push({ check, matched: true, reason, action: verdict });
+    const d: Decision = { ...decision, verdict, reason, triggered, trace };
+    return {
+      verdict,
+      allowed: false,
+      blocked: verdict === "blocked",
+      throttled: verdict === "throttled",
+      reason,
+      source: "rules",
+      decision: d,
+    };
   }
 
   /** Download rules now. Resolves when done; never throws. */
@@ -325,6 +609,7 @@ export class ShieldClient {
 
   /** Stop timers and send remaining logs (call on shutdown). */
   async close(): Promise<void> {
+    this.resilience?.stop();
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     if (this.flushing) await this.flushing;
@@ -348,6 +633,10 @@ export class ShieldClient {
       failMode: this.serverFailMode ?? this.opts.failMode,
       queuedLogs: this.queuedCount(),
       droppedLogs: this.droppedLogs,
+      inspection: this.inspectionConfig?.mode ?? "off",
+      decoys: !!this.decoys,
+      virtualPatches: this.patches.active(),
+      resilience: this.resilience?.state() ?? null,
     };
   }
 
@@ -381,10 +670,12 @@ export class ShieldClient {
     this.lastSyncAttempt = now;
     const full = force || !this.lastSyncOk || now - this.lastFullSync >= this.opts.fullSyncEveryMs;
     try {
+      const deps = this.patches.dependencies();
       const res = await this.post(this.opts.syncUrl, {
         connection_key: this.opts.connectionKey,
         client_version: full ? null : this.version,
         sdk_version: SDK_VERSION,
+        ...(full && this.reportDeps && Object.keys(deps).length ? { dependencies: deps } : {}),
       });
       if (res.status === 401 || res.status === 403) {
         this.disabled = true;
@@ -404,10 +695,15 @@ export class ShieldClient {
       this.disabled = false;
       if (body.fail_mode === "fail_closed") this.serverFailMode = "closed";
       else if (body.fail_mode === "fail_open") this.serverFailMode = "open";
+      if (typeof body.under_attack === "boolean") this.resilience?.setConsoleFlag(body.under_attack);
       if (!body.up_to_date) {
         if (!Array.isArray(body.rules) || !Array.isArray(body.blocklist)) throw new Error("Sync response missing rules or blocklist");
         this.rules = body.rules;
         this.blocklist = body.blocklist;
+        if (Array.isArray(body.virtual_patches)) {
+          const errors = this.patches.load(body.virtual_patches);
+          if (errors.length) this.report(new Error(`Some virtual patches were skipped: ${errors.slice(0, 5).join("; ")}`), "sync");
+        }
         this.lastFullSync = this.clock();
         this.recomputeWindow();
       }
@@ -519,6 +815,12 @@ export class ShieldClient {
         verdict_source: result.source,
         auto_block_type: d?.autoBlock?.type ?? null,
         observe_matches: d?.observed.map((o) => o.name) ?? [],
+        inspection: d?.inspectionFindings?.length
+          ? { score: d.inspectionFindings.reduce((s, f) => s + f.score, 0), findings: d.inspectionFindings.map((f) => ({ rule: f.rule, category: f.category, location: f.location, name: f.name })) }
+          : undefined,
+        defence: d?.triggered && /^(decoy|outcome:|vp-)/.test(d.triggered.id) ? d.triggered.name : undefined,
+        under_attack: this.resilience?.underAttack() || undefined,
+        virtual_patch: result.patch ? { id: result.patch.id, advisory: result.patch.advisory, package: result.patch.package, installed: result.patch.installed } : undefined,
       },
     };
     if (d && result.verdict !== "allowed") event.trace = JSON.stringify(d.trace);

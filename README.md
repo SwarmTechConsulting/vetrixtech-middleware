@@ -88,7 +88,7 @@ The client IP comes from `CF-Connecting-IP` and the country from `request.cf`.
 ### Base44 backend functions (Deno)
 
 ```ts
-import { SwarmTechShield } from "npm:@swarmtechshield/middleware@0.2.0";
+import { SwarmTechShield } from "npm:@swarmtechshield/middleware@0.5.0";
 
 export default async function (req: Request): Promise<Response> {
   const result = await SwarmTechShield.base44(req, {
@@ -136,10 +136,128 @@ The engine (`src/engine.ts`) runs these checks in order:
 1. **Allow rules.** A matching allow rule ends evaluation; nothing later can block that request.
 2. **Blocklist.** Expired entries are ignored. IPs caught by auto-detection are also blocked locally for `localBlockSeconds`.
 3. **Block and throttle rules**, by priority. Observe-only rules are logged, never enforced. Rolled-back and inactive rules are skipped.
-4. **Auto-detection.** Known attack patterns in the path or user agent are checked after URL-decoding (twice), so encoded attacks are caught. So are dedicated scanner tools (`sqlmap`, `nikto`, `nuclei`…). General clients like `curl` and `python-requests` are **not** blocked.
-5. **Rate burst.** More than 120 requests from one IP in 60 s is blocked; configure with `burst`.
+4. **Deep request inspection.** The path, query string, headers, cookies and body are scored for attack payloads (see below). A matching request is blocked when it is in block mode; in observe mode it is only recorded. When inspection is actively blocking, it supersedes the legacy path-signature scan.
+5. **Scanner tools.** Dedicated attack tools (`sqlmap`, `nikto`, `nuclei`…) are blocked by user agent. General clients like `curl` and `python-requests` are **not**.
+6. **Rate burst.** More than 120 requests from one IP in 60 s is blocked; configure with `burst`.
 
 `result.decision.trace` lists every step with a plain-English reason, and the trace always ends on the actual verdict.
+
+## Deep request inspection
+
+Inspection looks inside the whole request, not just the URL, so an injection sent in a POST body or a cookie is caught. It covers SQL injection, cross-site scripting, path traversal and file inclusion, command injection, SSRF, template injection (SSTI), XXE, NoSQL injection, prototype pollution, Log4Shell-style `${jndi:}` lookups, and probes for sensitive files such as `.env` and `.git`.
+
+Each finding adds to an anomaly score, the way the OWASP Core Rule Set works. One high-confidence finding (score 5) blocks on its own; weaker hints only block when several appear together. This keeps both evasion and false alarms low.
+
+```js
+app.use(SwarmTechShield.express({
+  connectionKey: process.env.SWARMTECH_SHIELD_KEY,
+  syncUrl: process.env.SWARMTECH_SHIELD_SYNC_URL,
+  logUrl: process.env.SWARMTECH_SHIELD_LOG_URL,
+  inspection: true, // block; omit for observe-only, the default
+}));
+```
+
+**Roll it out in observe mode first.** By default (`inspection` left unset) it runs in observe mode: every would-be block is logged to the console as an incident, but nothing is blocked. Watch those for a week, add exclusions for any false positives, then switch to `inspection: true`.
+
+`inspection` accepts a config object:
+
+| Field | Default | What it does |
+|---|---|---|
+| `mode` | `"observe"` (`"block"` when you pass `inspection: true`) | `"block"`, `"observe"` or `"off"`. |
+| `paranoia` | `1` | 1 to 4. Level 1 is high-confidence only. Higher levels catch more but flag more; raise per app after watching observe mode. |
+| `threshold` | `5` | Block when the score reaches this. |
+| `autoBlockScore` | `10` | Also blocklist the IP on this server (for `localBlockSeconds`) when a single request scores this high. `0` disables. |
+| `exclusions` | none | Known false positives to ignore, by path, location, parameter name and/or rule. |
+| `disabledRules` | none | Rule ids or categories (e.g. `"xss"`) switched off everywhere. |
+| `maxBodyBytes` | `65536` | How much of the body to read for inspection (adapter option). `0` turns body reading off. |
+
+An exclusion silences one known-good case without weakening the rest:
+
+```js
+inspection: {
+  mode: "block",
+  exclusions: [
+    // A markdown editor whose "content" field legitimately contains HTML and code.
+    { path: "^/posts/.*/edit", locations: ["body"], names: ["content"], rules: ["xss"] },
+  ],
+}
+```
+
+Call `SwarmTechShield.inspect(request, config)` directly if you want to score a request yourself. Findings redact values of sensitive fields (passwords, tokens, cards) before they reach logs.
+
+## Active defences
+
+These use what only middleware running inside your app can see.
+
+### Decoys and canary credentials (on by default)
+
+Requests for trap paths that real visitors never ask for (`/.env`, `/.git/config`, `/wp-admin`, `/phpmyadmin`, `/backup.sql` and others in `DEFAULT_DECOY_PATHS`) are blocked, and the IP is blocked on that server for `localBlockSeconds`. Bait paths such as `/.env` answer with a believable fake file carrying **canary credentials**. If anyone later presents one of those values anywhere in a request, they read the bait, and they are blocked.
+
+Add a hidden field to your forms to catch bots that fill in every input:
+
+```js
+import { honeypotFieldHtml } from "@swarmtechshield/middleware";
+// inside each <form>:  ${honeypotFieldHtml()}
+```
+
+Options: `decoys: { paths, bait, formField, blockIp }`, or `decoys: false`. Allow rules still win.
+
+### Login, payment and sign-up protection
+
+Tell the middleware how attempts went, and it stops abuse by account as well as by IP:
+
+```js
+const shield = { connectionKey: process.env.SWARMTECH_SHIELD_KEY, syncUrl: process.env.SWARMTECH_SHIELD_SYNC_URL };
+app.use(SwarmTechShield.express({ ...shield, getUser: (req) => req.body?.email }));
+
+app.post("/login", async (req, res) => {
+  const ok = await signIn(req.body.email, req.body.password);
+  SwarmTechShield.reportOutcome(shield, { type: "login", ip: req.ip, user: req.body.email, success: ok });
+  // ...
+});
+```
+
+| Type | Guarded paths (default) | Stops |
+|---|---|---|
+| `login` | `/login`, `/signin`, `/api/auth*`, `/auth*`… | 8 failures for one account, 20 failures or 10 accounts from one IP, per 15 min (throttle) |
+| `payment` | `/checkout*`, `/pay*`, `/payment*`, `/orders*`… | 6 failures, or 4 different cards from one IP or account, per hour (block). Pass your payment provider's card `fingerprint`, never card numbers |
+| `signup` | `/signup`, `/register`… | 5 sign-ups or 20 failures from one IP per hour (throttle) |
+
+Override any of these with `outcomes: { login: { paths, maxFailuresPerUser, … } }`.
+
+### Virtual patches matched to your dependencies
+
+```js
+import { detectDependencies } from "@swarmtechshield/middleware/node";
+const dependencies = await detectDependencies(); // { "some-package": "2.3.0", ... }
+app.use(SwarmTechShield.express({ ...shield, dependencies }));
+```
+
+The dependency names and versions go to SwarmTech Shield with each full sync (turn off with `reportDependencies: false`). When a package you have installed has a known vulnerability, the server sends a virtual patch, and the middleware applies it only if your installed version is affected. The block reason names the advisory and the version to upgrade to.
+
+### Verification probes
+
+The SwarmTech Shield checker can prove each route is protected. Its probes are signed with your connection key, valid for 5 minutes and single-use; anything else is ignored. A `test-block` probe gets `403` with `x-shield-test: blocked` and is not logged as an attack. On Cloudflare Workers and Base44 functions, wrap allowed responses with `SwarmTechShield.decorate(response, result)` so status probes see the `x-shield-status` header (Express does this for you).
+
+## Staying up under a flood
+
+The middleware can't absorb a network-level DDoS: that needs an edge network such as Cloudflare in front of your app. It does keep your app working when a flood of requests reaches it.
+
+- **Under-attack mode** turns on from the console, from your code (`SwarmTechShield.getClient(opts).setUnderAttack(true)`), or by itself when traffic runs at 5 times its recent level (and at least 50 requests a second) for 20 seconds. It halves the per-IP burst limit and makes inspection block rather than observe, then switches off after a calm minute.
+- **Load shedding** watches event-loop lag on long-running servers. Above 200 ms it answers low-priority anonymous requests with a fast `503` and `Retry-After`, and keeps serving logins, checkout, health checks, signed-in users and allow-listed IPs.
+- **Early rejection** skips reading the body of any request that will be blocked anyway.
+
+```js
+app.use(SwarmTechShield.express({
+  ...shield,
+  getUser: (req) => req.user?.id,                 // signed-in users are never shed
+  resilience: {
+    loadShedding: { maxLagMs: 150, priorityPaths: ["/login", "/checkout*", "/api/orders*"] },
+  },
+}));
+```
+
+Set `resilience: false` to turn all of this off.
 
 ## Options
 
@@ -160,7 +278,15 @@ The engine (`src/engine.ts`) runs these checks in order:
 | `maxQueue` | 5,000 | Log events kept in memory during an outage; the oldest are dropped first. |
 | `localBlockSeconds` | 900 | How long this server remembers an IP that auto-detection caught. |
 | `burst` | `{ maxRequests: 120, windowSeconds: 60 }` | Burst auto-block; `false` disables it. |
-| `autoDetection` | `true` | Attack-pattern and scanner detection. |
+| `autoDetection` | `true` | Legacy path-signature and scanner-UA detection. |
+| `inspection` | observe mode | Deep request inspection. `true` to block, `false` to turn off, or a config object (see above). |
+| `maxBodyBytes` | `65536` | Bytes of the request body read for inspection and decoys. `0` turns body reading off. |
+| `decoys` | on | Trap routes, bait with canary credentials, hidden form field. `false` disables. |
+| `outcomes` | on | Login, payment and sign-up limits fed by `reportOutcome()`. |
+| `dependencies` / `reportDependencies` | none / `true` | Installed package versions, for dependency-matched virtual patches. |
+| `verification` | `true` | Answer signed probes from the SwarmTech Shield checker. |
+| `resilience` | on | Under-attack mode, load shedding and early rejection: `{ underAttack, auto, burst, enforceInspection, loadShedding, loadProbe }`, or `false`. |
+| Adapters: `getUser` | none | Return the signed-in account for per-account limits. |
 | `onError` | none | `(error, context) => void` for sync, log and configuration problems. |
 | Response: `blockedStatus`, `blockedBody`, `throttledStatus`, `retryAfterSeconds` | 403, `"Forbidden"`, 429, 60 | What blocked visitors receive. The body never names the rule. |
 | Adapters: `skip`, `getClientIp`, `trustedHeader`, `trustedProxyCount`, `countryHeader`, `onBlocked` (Express) | | See above. |
@@ -199,14 +325,14 @@ Both copies run `test/vectors.json` (59 cases). Change a rule in one engine with
 The product was renamed from VetrixTech to SwarmTech Shield, and the package moved with it. To switch:
 
 1. `npm uninstall @vetrixtech/middleware` then `npm install @swarmtechshield/middleware`.
-2. Change the import to `import { SwarmTechShield } from "@swarmtechshield/middleware"` (Base44: `npm:@swarmtechshield/middleware@0.2.0`).
+2. Change the import to `import { SwarmTechShield } from "@swarmtechshield/middleware"` (Base44: `npm:@swarmtechshield/middleware@0.5.0`).
 
 Nothing else has to change. `VetrixTech`, `VetrixClient`, `VetrixOptions` and Express's `req.vetrixtech` still work as aliases of the new names, and your existing connection key, sync URL and log URL stay the same. Renaming your `VETRIXTECH_*` environment variables to `SWARMTECH_SHIELD_*` is optional; the names are only what your own code reads.
 
 ## Development
 
 ```bash
-npm test          # 99 tests: engine vectors, client (against a local mock of the two endpoints), adapters
+npm test          # 120 tests: engine vectors, client (against a local mock of the two endpoints), adapters
 npm run typecheck
 npm run build     # dist/esm + dist/cjs + type declarations
 ```

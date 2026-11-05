@@ -3,7 +3,30 @@
 
 import { getClient, type CheckResult } from "../client.ts";
 import { cleanIp, clientIpFromHeaders } from "../ip.ts";
-import { bodySizeFrom, pathFromUrl, toResponse, type AdapterOptions } from "./shared.ts";
+import { bodySizeFrom, inspectableContentType, pathFromUrl, toResponse, type AdapterOptions } from "./shared.ts";
+
+/** Read a request body (from a clone, so the original is untouched) up to a byte cap. */
+async function readBodyForInspection(
+  req: Request,
+  options: AdapterOptions,
+): Promise<{ body?: string; contentType?: string }> {
+  if (options.inspection === false && options.decoys === false) return {};
+  const cap = options.maxBodyBytes ?? 65536;
+  if (cap <= 0) return {};
+  const method = req.method.toUpperCase();
+  if (method === "GET" || method === "HEAD") return {};
+  const ct = req.headers.get("content-type") || "";
+  if (!inspectableContentType(ct)) return {};
+  const len = Number(req.headers.get("content-length") || "0");
+  if (Number.isFinite(len) && len > cap) return { contentType: ct }; // too big to read; URL/headers still inspected
+  try {
+    if (!req.body && !req.bodyUsed && typeof req.clone !== "function") return { contentType: ct };
+    const text = await req.clone().text();
+    return { body: text.length > cap ? text.slice(0, cap) : text, contentType: ct };
+  } catch {
+    return { contentType: ct };
+  }
+}
 
 export interface FetchAdapterOptions extends AdapterOptions {
   /** Return the client IP yourself. */
@@ -58,13 +81,30 @@ async function screen(
     ip = "";
   }
   const countryHeader = options.countryHeader ?? defaults.countryHeader;
+  const headers: Record<string, string> = {};
+  req.headers.forEach((v, k) => {
+    headers[k] = v;
+  });
+  let user: string | undefined;
+  try {
+    user = options.getUser?.(req);
+  } catch {
+    user = undefined;
+  }
+  const path = pathFromUrl(req.url);
+  // A request that will be rejected anyway (blocked IP, or shed under load) skips the body read.
+  const { body, contentType } = client.rejectsEarly(ip, path, user) ? { body: undefined, contentType: undefined } : await readBodyForInspection(req, options);
   return client.check({
     ip,
     method: req.method,
-    path: pathFromUrl(req.url),
+    path,
     userAgent: get("user-agent") || "",
     bodySize: bodySizeFrom(get("content-length")),
     country: defaults.country || (countryHeader ? get(countryHeader) || "" : ""),
+    headers,
+    body,
+    contentType,
+    user,
   });
 }
 

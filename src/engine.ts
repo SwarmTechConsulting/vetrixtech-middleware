@@ -87,6 +87,16 @@ export interface EvaluateData {
   adaptive?: { maxRequests: number; windowSeconds: number } | null;
   /** Signature and scanner auto-detection. Default true. */
   autoDetection?: boolean;
+  /** Deep request inspection result (from inspect()), checked in step 4 before the legacy signature scan. */
+  inspection?: {
+    matched: boolean;
+    mode: "block" | "observe" | "off";
+    score: number;
+    threshold: number;
+    /** When true and the request is blocked, the server/client may add the IP to the blocklist. */
+    autoBlock?: boolean;
+    findings: { rule: string; category: string; description: string; score: number; location: string; name: string }[];
+  } | null;
 }
 
 export interface TraceStep {
@@ -108,7 +118,9 @@ export interface Decision {
   reason: string;
   triggered: Triggered | null;
   /** Set when auto-detection blocked the request (the server may add the IP to the blocklist). */
-  autoBlock: { type: "signature" | "scanner" | "rate_burst"; reason: string } | null;
+  autoBlock: { type: "signature" | "scanner" | "rate_burst" | "inspection"; reason: string } | null;
+  /** Inspection findings that matched (recorded even in observe mode). */
+  inspectionFindings?: { rule: string; category: string; description: string; score: number; location: string; name: string }[];
   adaptiveThrottled: boolean;
   /** Observe-only rules that matched (they never change the verdict). */
   observed: { id: string; name: string; action: string }[];
@@ -601,7 +613,39 @@ export function evaluate(ctx: RequestContext, data: EvaluateData = {}): Decision
   }
 
   // 4. Auto-detection
-  if (data.autoDetection !== false) {
+  // 4a. Deep request inspection (path, query, headers, cookies, body). Scored; one
+  // high-confidence finding or several weaker ones block. Observe mode only records.
+  const insp = data.inspection;
+  if (insp && insp.mode !== "off" && insp.findings.length) {
+    const top = insp.findings[0];
+    const summary = `${top.description} (+${insp.findings.length - 1} more)`.replace(" (+0 more)", "");
+    if (insp.matched && insp.mode === "block") {
+      const reason = `Request inspection: ${summary} [score ${insp.score}]`;
+      trace.push({ check: "Request inspection", matched: true, reason: `${summary}. Anomaly score ${insp.score} reached the threshold of ${insp.threshold}.`, action: "blocked" });
+      return done("blocked", reason, {
+        triggered: { id: "auto", name: `Auto: ${top.category}`, type: "pattern", action: "block" },
+        // Only persist an IP-level block for a high-scoring request (several findings or a very
+        // serious one). A single threshold hit blocks the request but not the IP.
+        autoBlock: insp.autoBlock ? { type: "inspection", reason } : null,
+        inspectionFindings: insp.findings,
+      });
+    }
+    // observe mode, or score below threshold: record it, don't change the verdict.
+    for (const f of insp.findings) observed.push({ id: `insp:${f.rule}`, name: f.description, action: "observe" });
+    trace.push({
+      check: "Request inspection",
+      matched: false,
+      reason: `${summary}. Score ${insp.score}${insp.matched ? `, over the threshold, but inspection is in observe mode` : `, under the threshold of ${insp.threshold}`}; verdict unchanged.`,
+      action: "observed",
+    });
+  }
+
+  // The legacy path/UA signature scan is superseded by deep inspection only when
+  // inspection is actively blocking (it covers the same attacks across the whole request,
+  // and scoring both would double-count). In observe mode the legacy scan still runs, so
+  // enabling inspection never silently reduces protection. The scanner-UA check always runs.
+  const inspectionEnforcing = !!insp && insp.mode === "block";
+  if (data.autoDetection !== false && !inspectionEnforcing) {
     const sig = detectSignature(ctx.path || "") || detectSignature(ctx.user_agent || "");
     if (sig) {
       const reason = `Automatic block: malicious signature (${sig})`;
@@ -612,7 +656,10 @@ export function evaluate(ctx: RequestContext, data: EvaluateData = {}): Decision
       });
     }
     trace.push({ check: "Auto-detection: signature", matched: false, reason: "No known attack patterns in the path or user agent." });
+  }
 
+  // Scanner user-agent detection always runs (inspection does not cover known attack tools).
+  if (data.autoDetection !== false) {
     if (isSuspiciousUA(ctx.user_agent || "")) {
       const reason = "Automatic block: known scanner user agent";
       trace.push({ check: "Auto-detection: scanner", matched: true, reason: `User agent "${ctx.user_agent}" is a known attack tool.`, action: "blocked" });
