@@ -21,7 +21,7 @@ npm install @swarmtechshield/middleware
 
 No runtime dependencies. Requires Node 18+, or any runtime with `fetch` (Deno, Bun, Cloudflare Workers, edge runtimes).
 
-You need three values from the SwarmTech Shield console (**Admin Console → Connections** and the **Integration** page):
+You need three values from the [SwarmTech Shield console](https://swarmtechshield.com) (**Admin Console → Connections** and the **Integration** page):
 
 | Value | Where it goes |
 |---|---|
