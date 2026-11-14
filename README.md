@@ -25,7 +25,7 @@ You need three values from the SwarmTech Shield console (**Admin Console → Con
 
 | Value | Where it goes |
 |---|---|
-| Connection key (`vtx_conn_…`) | An environment variable, e.g. `SWARMTECH_SHIELD_KEY`. Never put it in browser code or commit it. |
+| Connection key (`sts_conn_…`) | An environment variable, e.g. `SWARMTECH_SHIELD_KEY`. Never put it in browser code or commit it. |
 | Sync URL (`…/functions/syncRuleCache`) | `syncUrl` |
 | Log URL (`…/functions/submitTrafficLog`) | `logUrl` |
 
@@ -336,15 +336,6 @@ node scripts/check-engine.mjs ../swarmtechshield-app/base44/shared/ruleEngine.ts
 ```
 
 Both copies run `test/vectors.json` (59 cases). Change a rule in one engine without copying it to the other, and a test fails.
-
-## Moving from @vetrixtech/middleware
-
-The product was renamed from VetrixTech to SwarmTech Shield, and the package moved with it. To switch:
-
-1. `npm uninstall @vetrixtech/middleware` then `npm install @swarmtechshield/middleware`.
-2. Change the import to `import { SwarmTechShield } from "@swarmtechshield/middleware"` (Base44: `npm:@swarmtechshield/middleware@0.5.0`).
-
-Nothing else has to change. `VetrixTech`, `VetrixClient`, `VetrixOptions` and Express's `req.vetrixtech` still work as aliases of the new names, and your existing connection key, sync URL and log URL stay the same. Renaming your `VETRIXTECH_*` environment variables to `SWARMTECH_SHIELD_*` is optional; the names are only what your own code reads.
 
 ## Development
 

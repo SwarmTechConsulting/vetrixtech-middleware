@@ -1,5 +1,5 @@
 // Usage: npm run set-repo -- <github-owner>
-// Points package.json at https://github.com/<github-owner>/vetrixtech-middleware.
+// Points package.json at https://github.com/<github-owner>/swarmtechshield-middleware.
 // npm's provenance check requires this to match the GitHub repo exactly.
 import { readFileSync, writeFileSync } from "node:fs";
 
@@ -10,8 +10,8 @@ if (!owner || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(owner)) {
 }
 const file = new URL("../package.json", import.meta.url);
 const pkg = JSON.parse(readFileSync(file, "utf8"));
-pkg.repository = { type: "git", url: `git+https://github.com/${owner}/vetrixtech-middleware.git` };
-pkg.homepage = `https://github.com/${owner}/vetrixtech-middleware#readme`;
-pkg.bugs = { url: `https://github.com/${owner}/vetrixtech-middleware/issues` };
+pkg.repository = { type: "git", url: `git+https://github.com/${owner}/swarmtechshield-middleware.git` };
+pkg.homepage = `https://github.com/${owner}/swarmtechshield-middleware#readme`;
+pkg.bugs = { url: `https://github.com/${owner}/swarmtechshield-middleware/issues` };
 writeFileSync(file, JSON.stringify(pkg, null, 2) + "\n");
-console.log(`package.json now points at github.com/${owner}/vetrixtech-middleware`);
+console.log(`package.json now points at github.com/${owner}/swarmtechshield-middleware`);

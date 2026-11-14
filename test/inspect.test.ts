@@ -222,7 +222,7 @@ test("the client inspects bodies end to end", async () => {
   const { startMock } = await import("./mock-server.ts");
   const mock = await startMock();
   try {
-    mock.state.key = "vtx_conn_inspect";
+    mock.state.key = "sts_conn_inspect";
     const client = createClient({ connectionKey: mock.state.key, syncUrl: mock.syncUrl, logUrl: undefined, inspection: true });
     // allow the first sync
     await client.check({ ip: "198.51.100.1", path: "/" });
@@ -246,7 +246,7 @@ test("a high-scoring request locally blocks the IP, a single hit does not", asyn
   const { startMock } = await import("./mock-server.ts");
   const mock = await startMock();
   try {
-    mock.state.key = "vtx_conn_block";
+    mock.state.key = "sts_conn_block";
     const client = createClient({ connectionKey: mock.state.key, syncUrl: mock.syncUrl, logUrl: undefined, inspection: true });
     await client.check({ ip: "198.51.100.2", path: "/" });
     // One score-5 hit: request blocked, IP not blocklisted.

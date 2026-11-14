@@ -968,9 +968,3 @@ export function createClient(options: ShieldOptions): ShieldClient {
   return new ShieldClient(options);
 }
 
-/** @deprecated Use ShieldClient. Kept for code written against @vetrixtech/middleware. */
-export const VetrixClient = ShieldClient;
-/** @deprecated Use ShieldClient. */
-export type VetrixClient = ShieldClient;
-/** @deprecated Use ShieldOptions. */
-export type VetrixOptions = ShieldOptions;

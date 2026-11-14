@@ -30,7 +30,7 @@ export interface Mock {
 
 export async function startMock(init: Partial<MockState> = {}): Promise<Mock> {
   const state: MockState = {
-    key: "vtx_conn_test",
+    key: "sts_conn_test",
     appStatus: "active",
     failMode: "fail_open",
     version: 1,

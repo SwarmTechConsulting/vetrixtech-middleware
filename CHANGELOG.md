@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Old-name aliases removed.** Only the SwarmTech Shield names remain: `SwarmTechShield`, `ShieldClient`, `ShieldOptions` and Express's `req.swarmtechshield`. The GitHub repository is now `SwarmTechConsulting/swarmtechshield-middleware`.
+- The README now shows the real connection-key prefix, `sts_conn_…`.
+
 Rule patterns can no longer slow requests down.
 
 - **Linear-time pattern matching.** Path and signature patterns in rules, virtual-patch patterns and inspection-exclusion paths now run on a built-in linear-time matcher (`src/linearRegex.ts`) instead of `RegExp`. JavaScript's `RegExp` backtracks, so a pattern such as `(a+)+$` could take seconds on a short request; now every pattern costs time in proportion to the request, whatever it looks like. Matching is still case-insensitive.
@@ -43,7 +46,7 @@ Active defences that only an in-app middleware can provide.
 
 ## 0.2.0 (2026-10-23)
 
-- **Renamed to `@swarmtechshield/middleware`**, following the product's rename from VetrixTech to SwarmTech Shield. The main export is now `SwarmTechShield`, with `ShieldClient` and `ShieldOptions`. Express puts the result on `req.swarmtechshield`. The old names (`VetrixTech`, `VetrixClient`, `VetrixOptions`, `req.vetrixtech`) still work as aliases.
+- **Published as `@swarmtechshield/middleware`.** The main export is `SwarmTechShield`, with `ShieldClient` and `ShieldOptions`. Express puts the result on `req.swarmtechshield`.
 - A rate-limited sync (HTTP 429) now keeps the last good rules and waits for the server's `Retry-After` (5 s to 5 min) instead of retrying every 30 seconds. Log uploads honour `Retry-After` too.
 - The SDK header is now `x-swarmtechshield-sdk`.
 - Release workflow fixed so publishing from GitHub uses trusted publishing (0.1.1 was tagged on GitHub but never published).

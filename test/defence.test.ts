@@ -14,7 +14,7 @@ function clock(start = Date.parse("2026-10-29T10:00:00Z")) {
 let n = 0;
 async function setup(extra: Record<string, unknown> = {}, init: Record<string, unknown> = {}) {
   const mock: Mock = await startMock(init as never);
-  mock.state.key = `vtx_conn_def_${++n}`;
+  mock.state.key = `sts_conn_def_${++n}`;
   const c = clock();
   const client = createClient({ connectionKey: mock.state.key, syncUrl: mock.syncUrl, logUrl: mock.logUrl, logBatchSize: 1, now: c.now, ...extra });
   await client.check({ ip: "198.51.100.200", path: "/" }); // first sync
@@ -127,7 +127,7 @@ test("outcome limits expire after their window, and a good login clears an accou
 test("SwarmTechShield.reportOutcome reaches the shared client", async (t) => {
   const mock = await startMock();
   t.after(() => mock.close());
-  mock.state.key = "vtx_conn_shared_outcome";
+  mock.state.key = "sts_conn_shared_outcome";
   const opts = { connectionKey: mock.state.key, syncUrl: mock.syncUrl };
   for (let i = 0; i < 8; i++) SwarmTechShield.reportOutcome(opts, { type: "login", user: "carol", success: false });
   const r = await SwarmTechShield.getClient(opts).check({ ip: "198.51.100.5", path: "/login", user: "carol" });
@@ -169,7 +169,7 @@ test("a virtual patch only applies when the installed version is affected", () =
 test("virtual patches arrive through sync, block requests, and dependencies are reported", async (t) => {
   const mock = await startMock();
   t.after(() => mock.close());
-  mock.state.key = "vtx_conn_patch";
+  mock.state.key = "sts_conn_patch";
   let syncBody: Record<string, unknown> | null = null;
   const realFetch = globalThis.fetch;
   const c = clock();
@@ -251,7 +251,7 @@ test("forged, replayed, stale or mismatched probes are ignored", async (t) => {
 test("Express serves decoy bait and sets verification headers", async (t) => {
   const mock = await startMock();
   t.after(() => mock.close());
-  mock.state.key = "vtx_conn_express_decoy";
+  mock.state.key = "sts_conn_express_decoy";
   const mw = SwarmTechShield.express({ connectionKey: mock.state.key, syncUrl: mock.syncUrl });
   const run = (url: string, headers: Record<string, string> = {}) =>
     new Promise<{ status: number; body: unknown; headers: Record<string, string>; next: boolean }>((resolve) => {

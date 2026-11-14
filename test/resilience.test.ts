@@ -59,7 +59,7 @@ test("load shedding keeps priority paths and signed-in users", () => {
 test("the client sheds with a 503 and Retry-After, and logs one summary instead of every request", async (t) => {
   const mock = await startMock();
   t.after(() => mock.close());
-  mock.state.key = "vtx_conn_shed";
+  mock.state.key = "sts_conn_shed";
   let load = 0;
   const c = clock();
   const client = createClient({
@@ -88,7 +88,7 @@ test("allow rules (e.g. a monitor) are never shed", async (t) => {
     rules: [{ id: "m", name: "Uptime monitor", type: "ip_allow", action: "allow", deployment_state: "enforced", criteria: { ips: ["203.0.113.200"] } }],
   });
   t.after(() => mock.close());
-  mock.state.key = "vtx_conn_shed_allow";
+  mock.state.key = "sts_conn_shed_allow";
   const client = createClient({ connectionKey: mock.state.key, syncUrl: mock.syncUrl, resilience: { loadProbe: () => 999 } });
   const r = await client.check({ ip: "203.0.113.200", path: "/products" });
   assert.equal(r.verdict, "allowed");
@@ -97,7 +97,7 @@ test("allow rules (e.g. a monitor) are never shed", async (t) => {
 test("under attack: tighter burst limit, and inspection blocks instead of observing", async (t) => {
   const mock = await startMock();
   t.after(() => mock.close());
-  mock.state.key = "vtx_conn_attack";
+  mock.state.key = "sts_conn_attack";
   const c = clock();
   const client = createClient({ connectionKey: mock.state.key, syncUrl: mock.syncUrl, now: c.now });
   // Inspection is in observe mode by default; a payload in the body is only seen by inspection.
@@ -117,7 +117,7 @@ test("under attack: tighter burst limit, and inspection blocks instead of observ
 test("the console can switch under-attack mode on through sync", async (t) => {
   const mock = await startMock();
   t.after(() => mock.close());
-  mock.state.key = "vtx_conn_console_attack";
+  mock.state.key = "sts_conn_console_attack";
   const realFetch = globalThis.fetch;
   const client = createClient({
     connectionKey: mock.state.key,
@@ -137,7 +137,7 @@ test("the console can switch under-attack mode on through sync", async (t) => {
 test("a blocked IP is rejected before the body is read", async (t) => {
   const mock = await startMock({ blocklist: [{ ip_or_range: "203.0.113.66", reason: "abuse" }] });
   t.after(() => mock.close());
-  mock.state.key = "vtx_conn_early";
+  mock.state.key = "sts_conn_early";
   const opts = { connectionKey: mock.state.key, syncUrl: mock.syncUrl };
   await SwarmTechShield.getClient(opts).check({ ip: "198.51.100.1", path: "/" });
   let bodyRead = false;
