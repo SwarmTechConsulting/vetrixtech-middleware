@@ -3,8 +3,9 @@
 // This one file is the single source of truth for how a request is judged.
 // It is used by the @swarmtechshield/middleware package AND is written to drop into
 // the Base44 app as base44/shared/ruleEngine.ts (it keeps every export the
-// existing backend functions import). Keep it free of runtime-specific APIs so
-// it runs unchanged in Node, Deno, Bun, Cloudflare Workers and edge runtimes.
+// existing backend functions import), with linearRegex.ts copied next to it.
+// Keep it free of runtime-specific APIs so it runs unchanged in Node, Deno, Bun,
+// Cloudflare Workers and edge runtimes.
 //
 // Evaluation order (see evaluate()):
 //   1. Allow rules           – an allow match ends evaluation; nothing later can block.
@@ -13,6 +14,8 @@
 //   4. Auto-detection        – malicious signatures, known scanner user agents.
 //   5. Rate burst            – too many requests from one IP.
 //   6. Adaptive throttle     – optional bounded safe limit.
+
+import { cachedLinear } from "./linearRegex.ts";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -340,24 +343,13 @@ export function isHeadlessUA(ua: string): boolean {
 /* Rule matching                                                       */
 /* ------------------------------------------------------------------ */
 
-const regexCache = new Map<string, RegExp | null>();
-
-function userRegex(src: string): RegExp | null {
-  if (regexCache.has(src)) return regexCache.get(src)!;
-  let re: RegExp | null = null;
-  try {
-    re = new RegExp(src, "i");
-  } catch {
-    re = null;
-  }
-  if (regexCache.size > 500) regexCache.clear();
-  regexCache.set(src, re);
-  return re;
-}
-
-/** Regex match with substring fallback for invalid patterns. */
+/**
+ * Regex match with substring fallback for patterns the matcher can't run.
+ * Rule patterns come from the console and run on every request, so they use the
+ * linear-time matcher: no pattern can make a request backtrack, (a+)+$ included.
+ */
 function textMatches(pattern: string, text: string): boolean {
-  const re = userRegex(pattern);
+  const re = cachedLinear(pattern);
   const t = text.slice(0, MAX_MATCH_LENGTH);
   return re ? re.test(t) : t.toLowerCase().includes(pattern.toLowerCase());
 }

@@ -13,6 +13,7 @@
 // Runtime-agnostic (Node, Deno, Bun, Workers). Only WebCrypto is used, when present.
 
 import { collectParts, variants, type InspectionInput, type Location } from "./inspect.ts";
+import { compileLinear, LinearRegexError, type LinearRegex } from "./linearRegex.ts";
 
 /* ------------------------------------------------------------------ */
 /* Hashing helpers                                                     */
@@ -53,6 +54,85 @@ function timingSafeEqualHex(a: string, b: string): boolean {
   let diff = 0;
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Signed log batches                                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Every log upload is signed, so SwarmTech Shield can refuse a replayed or
+ * altered batch:
+ *   x-shield-signature: t=<unix seconds>,n=<random nonce>,v1=<hex HMAC-SHA256>
+ * over "<t>.<n>.<exact request body>". The HMAC key is "sha256:<hex SHA-256 of
+ * the connection key>", which is what the server stores, so neither side needs
+ * the other's copy of the key. The server accepts a timestamp within 5 minutes
+ * and each nonce once.
+ */
+export const LOG_SIGNATURE_HEADER = "x-shield-signature";
+
+export async function signBatch(connectionKey: string, body: string, nowMs = Date.now()): Promise<string | null> {
+  const keyHash = await sha256Hex(connectionKey);
+  if (!keyHash) return null;
+  const t = Math.floor(nowMs / 1000);
+  const n = randomHex(16);
+  const sig = await hmacSha256Hex(`sha256:${keyHash}`, `${t}.${n}.${body}`);
+  return sig ? `t=${t},n=${n},v1=${sig}` : null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Service identities                                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Header carrying a service-identity token. Tokens are issued in the SwarmTech
+ * Shield console (Settings → Service identities); the sync response delivers only
+ * their SHA-256 hashes, so the middleware never holds a token it could leak.
+ *  - kind "service": your own backend, cron jobs or webhooks. The request skips
+ *    screening and is logged as service traffic.
+ *  - kind "synthetic": health checks, uptime monitors and self-tests. The request
+ *    is screened normally (so tests are real) but is never counted towards rate
+ *    limits, never causes an IP block and never raises an incident.
+ * A header with an unknown token is ignored: the request is screened as usual.
+ */
+export const SERVICE_HEADER = "x-shield-service-token";
+
+export interface ServiceIdentity {
+  id: string;
+  name: string;
+  kind: "service" | "synthetic";
+  /** "sha256:<hex>" of the token. */
+  token_hash: string;
+}
+
+export class ServiceIdentities {
+  private byHash = new Map<string, ServiceIdentity>();
+  private memo = new Map<string, ServiceIdentity | null>();
+
+  load(list: ServiceIdentity[] | undefined): void {
+    this.byHash.clear();
+    this.memo.clear();
+    for (const s of (list || []).slice(0, 500)) {
+      if (!s || typeof s.token_hash !== "string" || !s.token_hash.startsWith("sha256:")) continue;
+      if (s.kind !== "service" && s.kind !== "synthetic") continue;
+      this.byHash.set(s.token_hash, { id: String(s.id), name: String(s.name || "service"), kind: s.kind, token_hash: s.token_hash });
+    }
+  }
+
+  get size(): number {
+    return this.byHash.size;
+  }
+
+  /** The identity a token belongs to, or null. */
+  async identify(token: string | undefined): Promise<ServiceIdentity | null> {
+    if (!token || !this.byHash.size || token.length > 200) return null;
+    if (this.memo.has(token)) return this.memo.get(token)!;
+    const hex = await sha256Hex(token);
+    const found = hex ? this.byHash.get(`sha256:${hex}`) ?? null : null;
+    if (this.memo.size >= 1000) this.memo.clear();
+    this.memo.set(token, found);
+    return found;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -488,7 +568,7 @@ export function satisfies(version: string, range: string): boolean {
 
 interface CompiledPatch {
   patch: VirtualPatch;
-  re: RegExp;
+  re: LinearRegex;
   installed: string;
 }
 
@@ -519,10 +599,11 @@ export class VirtualPatches {
         errors.push(`${p.id}: pattern too long`);
         continue;
       }
+      // Linear-time matcher: a patch pattern can never make requests backtrack.
       try {
-        this.compiled.push({ patch: p, re: new RegExp(p.rule.pattern, "i"), installed });
-      } catch {
-        errors.push(`${p.id}: invalid pattern`);
+        this.compiled.push({ patch: p, re: compileLinear(p.rule.pattern), installed });
+      } catch (e) {
+        errors.push(`${p.id}: ${e instanceof LinearRegexError ? e.message : "invalid pattern"}`);
       }
     }
     return errors;

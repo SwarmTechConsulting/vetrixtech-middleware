@@ -15,4 +15,15 @@ if (a !== b) {
   console.error(`Engine drift: ${target} differs from src/engine.ts. Copy src/engine.ts over it (and test/vectors.json next to it).`);
   process.exit(1);
 }
+// The engine imports the linear-time matcher, which must be copied alongside it.
+const matcher = new URL("linearRegex.ts", new URL(target, `file://${process.cwd()}/`));
+try {
+  if (hash(new URL("../src/linearRegex.ts", import.meta.url)) !== hash(matcher)) {
+    console.error(`Matcher drift: ${matcher.pathname} differs from src/linearRegex.ts. Copy it over.`);
+    process.exit(1);
+  }
+} catch {
+  console.error(`Missing ${matcher.pathname}: copy src/linearRegex.ts next to the engine.`);
+  process.exit(1);
+}
 console.log("Engines match.");

@@ -35,17 +35,11 @@ export const SwarmTechShield = {
   engine,
 };
 
-/**
- * @deprecated The product is now SwarmTech Shield. `VetrixTech` is the same object as
- * `SwarmTechShield`, kept so code written against @vetrixtech/middleware keeps working.
- */
-export const VetrixTech = SwarmTechShield;
-
 export default SwarmTechShield;
 
 export { express, nextjs, cloudflare, base44, screenRequest, toResponse, decorate, reportOutcome, createClient, getClient, engine };
-export { ShieldClient, VetrixClient, SDK_VERSION } from "./client.ts";
-export type { ShieldOptions, VetrixOptions, RequestInfo, CheckResult, CheckSource, FailMode } from "./client.ts";
+export { ShieldClient, SDK_VERSION } from "./client.ts";
+export type { ShieldOptions, RequestInfo, CheckResult, CheckSource, FailMode } from "./client.ts";
 export type { ExpressOptions } from "./adapters/express.ts";
 export type { FetchAdapterOptions, WaitUntilContext } from "./adapters/fetch.ts";
 export type { AdapterOptions, ResponseOptions } from "./adapters/shared.ts";
@@ -62,7 +56,8 @@ export type {
   Location,
   Paranoia,
 } from "./inspect.ts";
-export { honeypotFieldHtml, signProbe, satisfies, DEFAULT_DECOY_PATHS, DEFAULT_OUTCOME_RULES, PROBE_HEADER } from "./defence.ts";
+export { honeypotFieldHtml, signProbe, satisfies, DEFAULT_DECOY_PATHS, DEFAULT_OUTCOME_RULES, PROBE_HEADER, SERVICE_HEADER } from "./defence.ts";
+export type { ServiceIdentity } from "./defence.ts";
 export type {
   DecoyOptions,
   DecoyResponse,

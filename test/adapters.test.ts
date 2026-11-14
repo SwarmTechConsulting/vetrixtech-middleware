@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { SwarmTechShield, VetrixTech } from "../src/index.ts";
+import { SwarmTechShield } from "../src/index.ts";
 import DefaultExport from "../src/index.ts";
 import { clientIpFromHeaders, fromForwardedFor, cleanIp } from "../src/ip.ts";
 import { startMock } from "./mock-server.ts";
@@ -8,7 +8,7 @@ import { startMock } from "./mock-server.ts";
 const rules = [{ id: "r1", name: "Block bad", type: "ip_block", action: "block", deployment_state: "enforced", criteria: { ips: ["203.0.113.9"] } }];
 
 let keyN = 0;
-const freshKey = () => `vtx_conn_adapter_${++keyN}`;
+const freshKey = () => `sts_conn_adapter_${++keyN}`;
 
 test("X-Forwarded-For: the client-written first value is never trusted", () => {
   // Attacker sends "X-Forwarded-For: 10.0.0.5" hoping to look allowlisted; the proxy appends the real IP.
@@ -69,9 +69,8 @@ test("Express: blocks with 403, passes allowed requests to next(), uses req.ip",
   assert.equal(blocked.res.body, "Forbidden", "never reveals the rule name");
   const ok = await runExpress(mw, "198.51.100.1");
   assert.equal(ok.nextCalled, true);
-  const okReq = ok.req as Record<string, unknown> & { swarmtechshield?: { verdict: string }; vetrixtech?: { verdict: string } };
+  const okReq = ok.req as Record<string, unknown> & { swarmtechshield?: { verdict: string } };
   assert.equal(okReq.swarmtechshield?.verdict, "allowed");
-  assert.equal(okReq.vetrixtech, okReq.swarmtechshield, "old property name still set");
 });
 
 test("Express: throttled requests get 429 with Retry-After", async (t) => {
@@ -173,7 +172,6 @@ test("IPv4-mapped addresses are normalised to plain IPv4", () => {
   assert.equal(cleanIp("::ffff:203.0.113.9"), "203.0.113.9");
 });
 
-test("the old VetrixTech name and the default export are the same object as SwarmTechShield", () => {
-  assert.equal(VetrixTech, SwarmTechShield);
+test("the default export is SwarmTechShield", () => {
   assert.equal(DefaultExport, SwarmTechShield);
 });

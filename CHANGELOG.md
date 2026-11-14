@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **Old-name aliases removed.** Only the SwarmTech Shield names remain: `SwarmTechShield`, `ShieldClient`, `ShieldOptions` and Express's `req.swarmtechshield`. The GitHub repository is now `SwarmTechConsulting/swarmtechshield-middleware`.
+- The README now shows the real connection-key prefix, `sts_conn_…`.
+
+Signed log uploads.
+
+- **Every log batch is signed.** `x-shield-signature: t=<unix>,n=<nonce>,v1=<HMAC-SHA256>` over `"<t>.<n>.<body>"`, keyed with the SHA-256 of the connection key (what SwarmTech Shield stores). The server refuses unsigned, altered, stale (over 5 minutes) and replayed batches. **SwarmTech Shield requires this from 0.6.0 on: older versions' log uploads are refused.**
+
+Rule patterns can no longer slow requests down.
+
+- **Linear-time pattern matching.** Path and signature patterns in rules, virtual-patch patterns and inspection-exclusion paths now run on a built-in linear-time matcher (`src/linearRegex.ts`) instead of `RegExp`. JavaScript's `RegExp` backtracks, so a pattern such as `(a+)+$` could take seconds on a short request; now every pattern costs time in proportion to the request, whatever it looks like. Matching is still case-insensitive.
+- Supported syntax is the usual subset: classes, groups (including named and non-capturing), alternation, `\d \w \s \b`, anchors and every quantifier. Lookahead/lookbehind and back-references aren't supported: a rule pattern that uses them falls back to a plain substring check (as invalid patterns always have), and a virtual patch that uses them is reported by `load()` and skipped. The SwarmTech Shield console refuses such patterns when they are written.
+- Plain-text patterns (no regex features) are matched as substrings directly.
+
+Service identities and synthetic traffic.
+
+- **Service identities.** A request carrying `x-shield-service-token` with a token issued in the console is recognised by its SHA-256 hash, which arrives in the sync response as `service_identities`. A **service** identity skips screening; a **synthetic** identity is screened normally but is never counted towards rate limits, bursts or the flood baseline, never causes an IP block, and never raises an incident. Both are logged with `traffic_class`, so the console keeps them out of attack statistics. Unknown tokens are ignored. `result.identity` reports the identity; `SERVICE_HEADER` is exported.
+
 ## 0.5.0 (2026-10-29)
 
 Resilience against application-layer floods. (Network-level DDoS needs an edge network in front; see the roadmap's Phase G.)
@@ -33,7 +50,7 @@ Active defences that only an in-app middleware can provide.
 
 ## 0.2.0 (2026-10-23)
 
-- **Renamed to `@swarmtechshield/middleware`**, following the product's rename from VetrixTech to SwarmTech Shield. The main export is now `SwarmTechShield`, with `ShieldClient` and `ShieldOptions`. Express puts the result on `req.swarmtechshield`. The old names (`VetrixTech`, `VetrixClient`, `VetrixOptions`, `req.vetrixtech`) still work as aliases.
+- **Published as `@swarmtechshield/middleware`.** The main export is `SwarmTechShield`, with `ShieldClient` and `ShieldOptions`. Express puts the result on `req.swarmtechshield`.
 - A rate-limited sync (HTTP 429) now keeps the last good rules and waits for the server's `Retry-After` (5 s to 5 min) instead of retrying every 30 seconds. Log uploads honour `Retry-After` too.
 - The SDK header is now `x-swarmtechshield-sdk`.
 - Release workflow fixed so publishing from GitHub uses trusted publishing (0.1.1 was tagged on GitHub but never published).

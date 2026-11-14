@@ -5,7 +5,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/SwarmTechConsulting/vetrixtech-middleware.git"
+    "url": "git+https://github.com/SwarmTechConsulting/swarmtechshield-middleware.git"
   },
   "type": "module",
   "main": "./dist/cjs/index.js",
@@ -94,8 +94,8 @@
   "publishConfig": {
     "access": "public"
   },
-  "homepage": "https://github.com/SwarmTechConsulting/vetrixtech-middleware#readme",
+  "homepage": "https://github.com/SwarmTechConsulting/swarmtechshield-middleware#readme",
   "bugs": {
-    "url": "https://github.com/SwarmTechConsulting/vetrixtech-middleware/issues"
+    "url": "https://github.com/SwarmTechConsulting/swarmtechshield-middleware/issues"
   }
 }

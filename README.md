@@ -25,7 +25,7 @@ You need three values from the SwarmTech Shield console (**Admin Console → Con
 
 | Value | Where it goes |
 |---|---|
-| Connection key (`vtx_conn_…`) | An environment variable, e.g. `SWARMTECH_SHIELD_KEY`. Never put it in browser code or commit it. |
+| Connection key (`sts_conn_…`) | An environment variable, e.g. `SWARMTECH_SHIELD_KEY`. Never put it in browser code or commit it. |
 | Sync URL (`…/functions/syncRuleCache`) | `syncUrl` |
 | Log URL (`…/functions/submitTrafficLog`) | `logUrl` |
 
@@ -239,6 +239,23 @@ The dependency names and versions go to SwarmTech Shield with each full sync (tu
 
 The SwarmTech Shield checker can prove each route is protected. Its probes are signed with your connection key, valid for 5 minutes and single-use; anything else is ignored. A `test-block` probe gets `403` with `x-shield-test: blocked` and is not logged as an attack. On Cloudflare Workers and Base44 functions, wrap allowed responses with `SwarmTechShield.decorate(response, result)` so status probes see the `x-shield-status` header (Express does this for you).
 
+## Service identities and synthetic traffic
+
+Your own backend calls, scheduled jobs, webhooks and uptime monitors are not attackers, but they can look like them: a job that walks every record trips rate limits, and a monitor that hits `/health` every few seconds inflates your traffic. Give each one a **service identity** in the SwarmTech Shield console (**Settings → Service identities**) and send its token on every request:
+
+```http
+x-shield-service-token: sts_svc_…
+```
+
+There are two kinds:
+
+- **Service.** The request skips screening entirely and is logged as service traffic. Use it for your own backends and jobs.
+- **Synthetic.** The request is screened normally, so a self-test sees the real verdict. It is never counted towards rate limits or bursts, never gets its IP blocked, and never raises an incident. Use it for health checks, uptime monitors and test suites.
+
+The console shows the token once. The middleware receives only its SHA-256 hash on sync, so there is no extra secret to configure. A request carrying an unknown token is screened as usual. Revoking an identity takes effect at the next rule refresh (every 30 seconds by default). Treat a service token like a password: anyone holding one bypasses screening for that app.
+
+`SERVICE_HEADER` is exported if you want the header name in code, and `result.identity` tells you which identity a request used.
+
 ## Staying up under a flood
 
 The middleware can't absorb a network-level DDoS: that needs an edge network such as Cloudflare in front of your app. It does keep your app working when a flood of requests reaches it.
@@ -305,6 +322,8 @@ Set `resilience: false` to turn all of this off.
 
 ## Limits worth knowing
 
+- **Log uploads are signed** (from 0.6.0). Each batch carries an HMAC signature with a timestamp and a one-time nonce, so a captured batch can't be replayed or altered. The server checks the timestamp within 5 minutes, so keep the server's clock in sync (NTP); a badly wrong clock shows up as `stale_signature` errors in `onError`. Signing proves the batch came from something holding the connection key. Anyone who steals the key could sign too, so keep it secret, and rotate it if it leaks.
+
 - **Counts are per server.** Rate limits and burst detection count requests in each server's memory. An app running on 3 servers allows up to 3× a limit. Use SwarmTech Shield's server-side screening, or a shared store, if you need exact global limits.
 - **Not in the middleware yet:** the adaptive safe-throttle (it needs the app's profile, which `syncRuleCache` doesn't send), port-scan detection, and block escalation. Escalation happens on the server when it receives the logs.
 - **Log volume:** each upload carries up to 100 events, and one upload runs at a time per server. If more traffic arrives than that can carry (or the server's upload limit is reached), allowed events are dropped first; blocked and throttled events are kept and sent first. `client.status().droppedLogs` shows the count. For busy apps, set `logAllowed` to a sample rate such as `0.1`.
@@ -319,15 +338,6 @@ node scripts/check-engine.mjs ../swarmtechshield-app/base44/shared/ruleEngine.ts
 ```
 
 Both copies run `test/vectors.json` (59 cases). Change a rule in one engine without copying it to the other, and a test fails.
-
-## Moving from @vetrixtech/middleware
-
-The product was renamed from VetrixTech to SwarmTech Shield, and the package moved with it. To switch:
-
-1. `npm uninstall @vetrixtech/middleware` then `npm install @swarmtechshield/middleware`.
-2. Change the import to `import { SwarmTechShield } from "@swarmtechshield/middleware"` (Base44: `npm:@swarmtechshield/middleware@0.5.0`).
-
-Nothing else has to change. `VetrixTech`, `VetrixClient`, `VetrixOptions` and Express's `req.vetrixtech` still work as aliases of the new names, and your existing connection key, sync URL and log URL stay the same. Renaming your `VETRIXTECH_*` environment variables to `SWARMTECH_SHIELD_*` is optional; the names are only what your own code reads.
 
 ## Development
 

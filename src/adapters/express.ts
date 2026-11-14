@@ -21,8 +21,6 @@ export interface ExpressLikeRequest {
   body?: unknown;
   socket?: { remoteAddress?: string; localPort?: number };
   swarmtechshield?: CheckResult;
-  /** @deprecated Same object as `swarmtechshield`; kept for code written against @vetrixtech/middleware. */
-  vetrixtech?: CheckResult;
 }
 export interface ExpressLikeResponse {
   status(code: number): ExpressLikeResponse;
@@ -106,7 +104,6 @@ export function express(options: ExpressOptions) {
       })
       .then((result) => {
         req.swarmtechshield = result;
-        req.vetrixtech = result;
         if (result.verification && !res.headersSent) {
           for (const [k, v] of Object.entries(result.verification.headers)) setHeader(res, k, v);
         }
