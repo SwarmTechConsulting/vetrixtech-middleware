@@ -3,6 +3,7 @@
 
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { createHash, createHmac } from "node:crypto";
 
 export interface MockState {
   key: string;
@@ -19,6 +20,10 @@ export interface MockState {
   syncStatus: number | null;
   syncRetryAfter: string | null;
   serviceIdentities: unknown[];
+  /** Verify x-shield-signature on log uploads the way SwarmTech Shield does. */
+  requireSignature: boolean;
+  /** Result of the signature check for each log upload. */
+  signatureChecks: string[];
 }
 
 export interface Mock {
@@ -43,9 +48,12 @@ export async function startMock(init: Partial<MockState> = {}): Promise<Mock> {
     syncStatus: null,
     syncRetryAfter: null,
     serviceIdentities: [],
+    requireSignature: false,
+    signatureChecks: [],
     ...init,
   };
 
+  const seenNonces = new Set<string>();
   const server: Server = createServer((req, res) => {
     let raw = "";
     req.on("data", (c) => (raw += c));
@@ -85,6 +93,9 @@ export async function startMock(init: Partial<MockState> = {}): Promise<Mock> {
         });
       }
       if (req.url === "/functions/submitTrafficLog") {
+        const check = verifySignature(String(req.headers["x-shield-signature"] || ""), raw, String(body.connection_key || ""), seenNonces);
+        state.signatureChecks.push(check);
+        if (state.requireSignature && check !== "ok") return send(401, { error: check });
         if (state.logStatus) return send(state.logStatus, { error: "forced" });
         if (!authorised) return send(401, { error: "Invalid or inactive connection key" });
         const logs = body.logs as unknown[];
@@ -110,4 +121,18 @@ export async function startMock(init: Partial<MockState> = {}): Promise<Mock> {
         server.close(() => resolve());
       }),
   };
+}
+
+/** Same check as SwarmTech Shield's submitTrafficLog. */
+export function verifySignature(header: string, raw: string, connectionKey: string, seen: Set<string>, nowMs = Date.now()): string {
+  const m = /^t=(\d+),n=([0-9a-f]{16,64}),v1=([0-9a-f]{64})$/.exec(header);
+  if (!m) return "unsigned_batch";
+  const [, t, n, sig] = m;
+  if (Math.abs(nowMs / 1000 - Number(t)) > 300) return "stale_signature";
+  const keyHash = "sha256:" + createHash("sha256").update(connectionKey).digest("hex");
+  const expected = createHmac("sha256", keyHash).update(`${t}.${n}.${raw}`).digest("hex");
+  if (expected !== sig) return "bad_signature";
+  if (seen.has(n)) return "replayed_batch";
+  seen.add(n);
+  return "ok";
 }

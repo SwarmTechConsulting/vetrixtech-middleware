@@ -322,6 +322,8 @@ Set `resilience: false` to turn all of this off.
 
 ## Limits worth knowing
 
+- **Log uploads are signed** (from 0.6.0). Each batch carries an HMAC signature with a timestamp and a one-time nonce, so a captured batch can't be replayed or altered. The server checks the timestamp within 5 minutes, so keep the server's clock in sync (NTP); a badly wrong clock shows up as `stale_signature` errors in `onError`. Signing proves the batch came from something holding the connection key. Anyone who steals the key could sign too, so keep it secret, and rotate it if it leaks.
+
 - **Counts are per server.** Rate limits and burst detection count requests in each server's memory. An app running on 3 servers allows up to 3× a limit. Use SwarmTech Shield's server-side screening, or a shared store, if you need exact global limits.
 - **Not in the middleware yet:** the adaptive safe-throttle (it needs the app's profile, which `syncRuleCache` doesn't send), port-scan detection, and block escalation. Escalation happens on the server when it receives the logs.
 - **Log volume:** each upload carries up to 100 events, and one upload runs at a time per server. If more traffic arrives than that can carry (or the server's upload limit is reached), allowed events are dropped first; blocked and throttled events are kept and sent first. `client.status().droppedLogs` shows the count. For busy apps, set `logAllowed` to a sample rate such as `0.1`.

@@ -22,7 +22,9 @@ import {
   VirtualPatches,
   PROBE_HEADER,
   SERVICE_HEADER,
+  LOG_SIGNATURE_HEADER,
   ServiceIdentities,
+  signBatch,
   type ActivePatch,
   type DecoyOptions,
   type DecoyResponse,
@@ -884,7 +886,7 @@ export class ShieldClient {
     const batch = this.priorityQueue.splice(0, this.opts.logBatchSize);
     if (batch.length < this.opts.logBatchSize) batch.push(...this.allowedQueue.splice(0, this.opts.logBatchSize - batch.length));
     try {
-      const res = await this.post(this.opts.logUrl!, { connection_key: this.opts.connectionKey, logs: batch });
+      const res = await this.post(this.opts.logUrl!, { connection_key: this.opts.connectionKey, logs: batch }, true);
       if (res.status === 401 || res.status === 403) {
         this.report(new Error(`Log upload rejected (${res.status}); dropping ${batch.length} events`), "log");
         this.logBackoffUntil = this.clock() + 60_000;
@@ -905,14 +907,21 @@ export class ShieldClient {
 
   /* ---------------- helpers ---------------- */
 
-  private async post(url: string, body: unknown): Promise<Response> {
+  private async post(url: string, body: unknown, sign = false): Promise<Response> {
     const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
     const timer = ctrl ? setTimeout(() => ctrl.abort(), this.opts.requestTimeoutMs) : undefined;
     try {
+      const text = JSON.stringify(body);
+      const headers: Record<string, string> = { "content-type": "application/json", "x-swarmtechshield-sdk": SDK_VERSION };
+      // Log batches are signed so the server can refuse replays (see signBatch).
+      if (sign) {
+        const signature = await signBatch(this.opts.connectionKey, text, Date.now());
+        if (signature) headers[LOG_SIGNATURE_HEADER] = signature;
+      }
       return await this.fetchImpl(url, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-swarmtechshield-sdk": SDK_VERSION },
-        body: JSON.stringify(body),
+        headers,
+        body: text,
         signal: ctrl?.signal,
       });
     } finally {

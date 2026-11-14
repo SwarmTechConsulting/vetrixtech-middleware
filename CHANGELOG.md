@@ -5,6 +5,10 @@
 - **Old-name aliases removed.** Only the SwarmTech Shield names remain: `SwarmTechShield`, `ShieldClient`, `ShieldOptions` and Express's `req.swarmtechshield`. The GitHub repository is now `SwarmTechConsulting/swarmtechshield-middleware`.
 - The README now shows the real connection-key prefix, `sts_conn_…`.
 
+Signed log uploads.
+
+- **Every log batch is signed.** `x-shield-signature: t=<unix>,n=<nonce>,v1=<HMAC-SHA256>` over `"<t>.<n>.<body>"`, keyed with the SHA-256 of the connection key (what SwarmTech Shield stores). The server refuses unsigned, altered, stale (over 5 minutes) and replayed batches. **SwarmTech Shield requires this from 0.6.0 on: older versions' log uploads are refused.**
+
 Rule patterns can no longer slow requests down.
 
 - **Linear-time pattern matching.** Path and signature patterns in rules, virtual-patch patterns and inspection-exclusion paths now run on a built-in linear-time matcher (`src/linearRegex.ts`) instead of `RegExp`. JavaScript's `RegExp` backtracks, so a pattern such as `(a+)+$` could take seconds on a short request; now every pattern costs time in proportion to the request, whatever it looks like. Matching is still case-insensitive.

@@ -57,6 +57,30 @@ function timingSafeEqualHex(a: string, b: string): boolean {
 }
 
 /* ------------------------------------------------------------------ */
+/* Signed log batches                                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Every log upload is signed, so SwarmTech Shield can refuse a replayed or
+ * altered batch:
+ *   x-shield-signature: t=<unix seconds>,n=<random nonce>,v1=<hex HMAC-SHA256>
+ * over "<t>.<n>.<exact request body>". The HMAC key is "sha256:<hex SHA-256 of
+ * the connection key>", which is what the server stores, so neither side needs
+ * the other's copy of the key. The server accepts a timestamp within 5 minutes
+ * and each nonce once.
+ */
+export const LOG_SIGNATURE_HEADER = "x-shield-signature";
+
+export async function signBatch(connectionKey: string, body: string, nowMs = Date.now()): Promise<string | null> {
+  const keyHash = await sha256Hex(connectionKey);
+  if (!keyHash) return null;
+  const t = Math.floor(nowMs / 1000);
+  const n = randomHex(16);
+  const sig = await hmacSha256Hex(`sha256:${keyHash}`, `${t}.${n}.${body}`);
+  return sig ? `t=${t},n=${n},v1=${sig}` : null;
+}
+
+/* ------------------------------------------------------------------ */
 /* Service identities                                                  */
 /* ------------------------------------------------------------------ */
 
