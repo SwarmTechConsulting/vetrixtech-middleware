@@ -57,6 +57,61 @@ function timingSafeEqualHex(a: string, b: string): boolean {
 }
 
 /* ------------------------------------------------------------------ */
+/* Service identities                                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Header carrying a service-identity token. Tokens are issued in the SwarmTech
+ * Shield console (Settings → Service identities); the sync response delivers only
+ * their SHA-256 hashes, so the middleware never holds a token it could leak.
+ *  - kind "service": your own backend, cron jobs or webhooks. The request skips
+ *    screening and is logged as service traffic.
+ *  - kind "synthetic": health checks, uptime monitors and self-tests. The request
+ *    is screened normally (so tests are real) but is never counted towards rate
+ *    limits, never causes an IP block and never raises an incident.
+ * A header with an unknown token is ignored: the request is screened as usual.
+ */
+export const SERVICE_HEADER = "x-shield-service-token";
+
+export interface ServiceIdentity {
+  id: string;
+  name: string;
+  kind: "service" | "synthetic";
+  /** "sha256:<hex>" of the token. */
+  token_hash: string;
+}
+
+export class ServiceIdentities {
+  private byHash = new Map<string, ServiceIdentity>();
+  private memo = new Map<string, ServiceIdentity | null>();
+
+  load(list: ServiceIdentity[] | undefined): void {
+    this.byHash.clear();
+    this.memo.clear();
+    for (const s of (list || []).slice(0, 500)) {
+      if (!s || typeof s.token_hash !== "string" || !s.token_hash.startsWith("sha256:")) continue;
+      if (s.kind !== "service" && s.kind !== "synthetic") continue;
+      this.byHash.set(s.token_hash, { id: String(s.id), name: String(s.name || "service"), kind: s.kind, token_hash: s.token_hash });
+    }
+  }
+
+  get size(): number {
+    return this.byHash.size;
+  }
+
+  /** The identity a token belongs to, or null. */
+  async identify(token: string | undefined): Promise<ServiceIdentity | null> {
+    if (!token || !this.byHash.size || token.length > 200) return null;
+    if (this.memo.has(token)) return this.memo.get(token)!;
+    const hex = await sha256Hex(token);
+    const found = hex ? this.byHash.get(`sha256:${hex}`) ?? null : null;
+    if (this.memo.size >= 1000) this.memo.clear();
+    this.memo.set(token, found);
+    return found;
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Decoys and canary credentials                                       */
 /* ------------------------------------------------------------------ */
 

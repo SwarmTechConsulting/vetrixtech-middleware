@@ -8,6 +8,10 @@ Rule patterns can no longer slow requests down.
 - Supported syntax is the usual subset: classes, groups (including named and non-capturing), alternation, `\d \w \s \b`, anchors and every quantifier. Lookahead/lookbehind and back-references aren't supported: a rule pattern that uses them falls back to a plain substring check (as invalid patterns always have), and a virtual patch that uses them is reported by `load()` and skipped. The SwarmTech Shield console refuses such patterns when they are written.
 - Plain-text patterns (no regex features) are matched as substrings directly.
 
+Service identities and synthetic traffic.
+
+- **Service identities.** A request carrying `x-shield-service-token` with a token issued in the console is recognised by its SHA-256 hash, which arrives in the sync response as `service_identities`. A **service** identity skips screening; a **synthetic** identity is screened normally but is never counted towards rate limits, bursts or the flood baseline, never causes an IP block, and never raises an incident. Both are logged with `traffic_class`, so the console keeps them out of attack statistics. Unknown tokens are ignored. `result.identity` reports the identity; `SERVICE_HEADER` is exported.
+
 ## 0.5.0 (2026-10-29)
 
 Resilience against application-layer floods. (Network-level DDoS needs an edge network in front; see the roadmap's Phase G.)

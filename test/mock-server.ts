@@ -18,6 +18,7 @@ export interface MockState {
   /** Force syncRuleCache to answer with this status (and Retry-After, if set). */
   syncStatus: number | null;
   syncRetryAfter: string | null;
+  serviceIdentities: unknown[];
 }
 
 export interface Mock {
@@ -41,6 +42,7 @@ export async function startMock(init: Partial<MockState> = {}): Promise<Mock> {
     logStatus: null,
     syncStatus: null,
     syncRetryAfter: null,
+    serviceIdentities: [],
     ...init,
   };
 
@@ -78,6 +80,7 @@ export async function startMock(init: Partial<MockState> = {}): Promise<Mock> {
           app_name: "Test app",
           rules: state.rules,
           blocklist: state.blocklist,
+          service_identities: state.serviceIdentities,
           generated_at: new Date().toISOString(),
         });
       }

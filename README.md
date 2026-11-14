@@ -239,6 +239,23 @@ The dependency names and versions go to SwarmTech Shield with each full sync (tu
 
 The SwarmTech Shield checker can prove each route is protected. Its probes are signed with your connection key, valid for 5 minutes and single-use; anything else is ignored. A `test-block` probe gets `403` with `x-shield-test: blocked` and is not logged as an attack. On Cloudflare Workers and Base44 functions, wrap allowed responses with `SwarmTechShield.decorate(response, result)` so status probes see the `x-shield-status` header (Express does this for you).
 
+## Service identities and synthetic traffic
+
+Your own backend calls, scheduled jobs, webhooks and uptime monitors are not attackers, but they can look like them: a job that walks every record trips rate limits, and a monitor that hits `/health` every few seconds inflates your traffic. Give each one a **service identity** in the SwarmTech Shield console (**Settings → Service identities**) and send its token on every request:
+
+```http
+x-shield-service-token: sts_svc_…
+```
+
+There are two kinds:
+
+- **Service.** The request skips screening entirely and is logged as service traffic. Use it for your own backends and jobs.
+- **Synthetic.** The request is screened normally, so a self-test sees the real verdict. It is never counted towards rate limits or bursts, never gets its IP blocked, and never raises an incident. Use it for health checks, uptime monitors and test suites.
+
+The console shows the token once. The middleware receives only its SHA-256 hash on sync, so there is no extra secret to configure. A request carrying an unknown token is screened as usual. Revoking an identity takes effect at the next rule refresh (every 30 seconds by default). Treat a service token like a password: anyone holding one bypasses screening for that app.
+
+`SERVICE_HEADER` is exported if you want the header name in code, and `result.identity` tells you which identity a request used.
+
 ## Staying up under a flood
 
 The middleware can't absorb a network-level DDoS: that needs an edge network such as Cloudflare in front of your app. It does keep your app working when a flood of requests reaches it.

@@ -62,7 +62,8 @@ export type {
   Location,
   Paranoia,
 } from "./inspect.ts";
-export { honeypotFieldHtml, signProbe, satisfies, DEFAULT_DECOY_PATHS, DEFAULT_OUTCOME_RULES, PROBE_HEADER } from "./defence.ts";
+export { honeypotFieldHtml, signProbe, satisfies, DEFAULT_DECOY_PATHS, DEFAULT_OUTCOME_RULES, PROBE_HEADER, SERVICE_HEADER } from "./defence.ts";
+export type { ServiceIdentity } from "./defence.ts";
 export type {
   DecoyOptions,
   DecoyResponse,

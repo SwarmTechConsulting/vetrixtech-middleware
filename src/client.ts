@@ -21,12 +21,15 @@ import {
   ProbeVerifier,
   VirtualPatches,
   PROBE_HEADER,
+  SERVICE_HEADER,
+  ServiceIdentities,
   type ActivePatch,
   type DecoyOptions,
   type DecoyResponse,
   type OutcomeConfig,
   type OutcomeReport,
   type ProbeResult,
+  type ServiceIdentity,
   type VirtualPatch,
 } from "./defence.ts";
 import { Resilience, type ResilienceOptions, type ResilienceState } from "./resilience.ts";
@@ -138,6 +141,8 @@ export interface CheckResult {
   verification?: ProbeResult & { headers: Record<string, string> };
   /** Set when a dependency-matched virtual patch blocked the request. */
   patch?: ActivePatch;
+  /** Set when the request carried a valid service-identity token (see SERVICE_HEADER). */
+  identity?: { id: string; name: string; kind: "service" | "synthetic" };
   /** Set when the request was shed because the server is overloaded (send a 503). */
   shed?: boolean;
   /** Seconds to put in Retry-After for a shed request. */
@@ -159,6 +164,8 @@ interface LogEvent {
   rule_type: string;
   reason: string;
   is_incident: boolean;
+  /** "service" or "synthetic" for requests from a service identity; real traffic leaves it out. */
+  traffic_class?: "service" | "synthetic";
   trace?: string;
   details: Record<string, unknown>;
 }
@@ -173,6 +180,8 @@ interface SyncResponse {
   under_attack?: boolean;
   /** Virtual patches; the client keeps those that affect its installed dependencies. */
   virtual_patches?: VirtualPatch[];
+  /** Service identities (token hashes only) for this app. */
+  service_identities?: ServiceIdentity[];
   error?: string;
 }
 
@@ -230,6 +239,7 @@ export class ShieldClient {
   private decoys: Decoys | null;
   private outcomes: OutcomeTracker | null;
   private patches = new VirtualPatches();
+  private services = new ServiceIdentities();
   private probes: ProbeVerifier | null;
   private reportDeps: boolean;
   private resilience: Resilience | null;
@@ -326,6 +336,11 @@ export class ShieldClient {
       const method = (info.method || "GET").toUpperCase();
       const path = info.path || "/";
 
+      // A valid service-identity token: "service" skips screening, "synthetic" is screened
+      // but never counted, blocked by IP or raised as an incident.
+      const identity = this.disabled ? null : await this.services.identify(headerOf(info.headers, SERVICE_HEADER));
+      const synthetic = identity?.kind === "synthetic";
+
       let result: Omit<CheckResult, "durationMs" | "background">;
       if (this.disabled) {
         result = this.simple("allowed", "SwarmTech Shield disabled: connection key rejected or app paused", "disabled");
@@ -334,18 +349,20 @@ export class ShieldClient {
         result = mode === "closed"
           ? this.simple("blocked", "Fail closed: rules unavailable", "fail_closed")
           : this.simple("allowed", "Fail open: rules unavailable", "fail_open");
+      } else if (identity && identity.kind === "service") {
+        result = this.simple("allowed", `Service identity: ${identity.name}`, "rules");
       } else {
         if (!ip && !this.warnedNoIp) {
           this.warnedNoIp = true;
           this.report(new Error("Could not determine the client IP; IP rules, blocklist and rate limits are skipped for such requests. Check your proxy/IP settings."), "client_ip");
         }
         if (++this.checks % 1000 === 0) this.evictHits(now);
-        if (ip) this.recordHit(ip, method, path, now);
+        if (ip && !synthetic) this.recordHit(ip, method, path, now);
         const local = ip ? this.localBlocks.get(ip) : undefined;
         const blocklist = local && local.until > now
           ? [...this.blocklist, { ip_or_range: ip, reason: local.reason, expires_at: new Date(local.until).toISOString(), source: "local" }]
           : this.blocklist;
-        this.resilience?.record(now);
+        if (!synthetic) this.resilience?.record(now);
         const underAttack = this.resilience?.underAttack() ?? false;
 
         // Load shedding: when the server is overloaded, low-priority anonymous requests get a
@@ -411,7 +428,7 @@ export class ShieldClient {
             inspection,
           },
         );
-        if (decision.autoBlock && ip) {
+        if (decision.autoBlock && ip && !synthetic) {
           this.localBlocks.set(ip, { until: now + this.opts.localBlockSeconds * 1000, reason: decision.autoBlock.reason });
         }
         result = {
@@ -436,7 +453,7 @@ export class ShieldClient {
           if (decoy && decoy.kind === "trap") {
             result = this.override(decision, "blocked", decoy.reason, { id: "decoy", name: `Decoy: ${decoy.kind}`, type: "pattern", action: "block" }, "Decoy");
             if (decoy.response) result.decoy = decoy.response;
-            if (ip && this.decoys.opts.blockIp) this.localBlocks.set(ip, { until: now + this.opts.localBlockSeconds * 1000, reason: decoy.reason });
+            if (ip && !synthetic && this.decoys.opts.blockIp) this.localBlocks.set(ip, { until: now + this.opts.localBlockSeconds * 1000, reason: decoy.reason });
           }
         }
         if (decision.verdict === "allowed" && !allowRuleWon) {
@@ -444,7 +461,7 @@ export class ShieldClient {
           const patch = decoy ? null : this.patches.match(input);
           const outcome = decoy || patch ? null : this.outcomes?.check(path, ip, info.user) ?? null;
           if (decoy) {
-            if (ip && this.decoys!.opts.blockIp && decoy.kind !== "form_field") {
+            if (ip && !synthetic && this.decoys!.opts.blockIp && decoy.kind !== "form_field") {
               this.localBlocks.set(ip, { until: now + this.opts.localBlockSeconds * 1000, reason: decoy.reason });
             }
             result = this.override(decision, "blocked", decoy.reason, { id: "decoy", name: `Decoy: ${decoy.kind}`, type: "pattern", action: "block" }, "Decoy");
@@ -478,6 +495,7 @@ export class ShieldClient {
         }
       }
 
+      if (identity) result.identity = { id: identity.id, name: identity.name, kind: identity.kind };
       const durationMs = Math.round((nowPerf() - t0) * 100) / 100;
       if (result.source !== "disabled") this.enqueue(info, result, durationMs, now);
       const flush = this.maybeFlush();
@@ -700,6 +718,7 @@ export class ShieldClient {
         if (!Array.isArray(body.rules) || !Array.isArray(body.blocklist)) throw new Error("Sync response missing rules or blocklist");
         this.rules = body.rules;
         this.blocklist = body.blocklist;
+        this.services.load(Array.isArray(body.service_identities) ? body.service_identities : []);
         if (Array.isArray(body.virtual_patches)) {
           const errors = this.patches.load(body.virtual_patches);
           if (errors.length) this.report(new Error(`Some virtual patches were skipped: ${errors.slice(0, 5).join("; ")}`), "sync");
@@ -786,7 +805,8 @@ export class ShieldClient {
     const rawPath = info.path || "/";
     const path = this.opts.logQueryString ? rawPath : rawPath.split("?")[0];
     const fromBlocklist = d?.triggered?.name === "Blocklist";
-    let incident = result.verdict === "blocked" && result.source === "rules" && !fromBlocklist;
+    // Service and synthetic traffic never raises an incident.
+    let incident = result.verdict === "blocked" && result.source === "rules" && !fromBlocklist && !result.identity;
     if (incident) {
       // At most one incident per IP + rule every 30 minutes from this server.
       const key = `${info.ip}|${d?.triggered?.name || ""}`;
@@ -809,10 +829,12 @@ export class ShieldClient {
       rule_type: trunc(d?.triggered?.type, 50),
       reason: trunc(result.reason, 500),
       is_incident: incident,
+      ...(result.identity ? { traffic_class: result.identity.kind } : {}),
       details: {
         source: "middleware",
         sdk_version: SDK_VERSION,
         verdict_source: result.source,
+        ...(result.identity ? { service_identity: result.identity.name, service_identity_id: result.identity.id } : {}),
         auto_block_type: d?.autoBlock?.type ?? null,
         observe_matches: d?.observed.map((o) => o.name) ?? [],
         inspection: d?.inspectionFindings?.length
