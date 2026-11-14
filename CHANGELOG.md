@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+Rule patterns can no longer slow requests down.
+
+- **Linear-time pattern matching.** Path and signature patterns in rules, virtual-patch patterns and inspection-exclusion paths now run on a built-in linear-time matcher (`src/linearRegex.ts`) instead of `RegExp`. JavaScript's `RegExp` backtracks, so a pattern such as `(a+)+$` could take seconds on a short request; now every pattern costs time in proportion to the request, whatever it looks like. Matching is still case-insensitive.
+- Supported syntax is the usual subset: classes, groups (including named and non-capturing), alternation, `\d \w \s \b`, anchors and every quantifier. Lookahead/lookbehind and back-references aren't supported: a rule pattern that uses them falls back to a plain substring check (as invalid patterns always have), and a virtual patch that uses them is reported by `load()` and skipped. The SwarmTech Shield console refuses such patterns when they are written.
+- Plain-text patterns (no regex features) are matched as substrings directly.
+
 ## 0.5.0 (2026-10-29)
 
 Resilience against application-layer floods. (Network-level DDoS needs an edge network in front; see the roadmap's Phase G.)

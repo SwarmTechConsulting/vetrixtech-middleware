@@ -100,6 +100,8 @@ In the swarmtech-shield repository, set `MIDDLEWARE_VERSION` in `src/lib/middlew
 
 In the run's log, the **Show versions** step should print npm 11.5 or newer, and near the end there should be a line about a signed provenance statement.
 
+**If you change `src/linearRegex.ts`:** the SwarmTech Shield app has an identical copy at `base44/shared/linearRegex.ts` (and a generated console copy, `src/lib/linearRegex.js`). Change both repositories together; `test/linearRegex.test.ts` fails if they differ when both are checked out side by side.
+
 **If you change detection rules:** the Base44 server (`base44/shared/ruleEngine.ts`) and this package have separate engines, and both must give the same verdicts. When you change one, add a case to `test/vectors.json` and make sure both pass it.
 
 ---

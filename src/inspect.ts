@@ -14,6 +14,8 @@
 // Cloudflare Workers and edge runtimes. Every regular expression is bounded so that a
 // crafted value can't make matching slow.
 
+import { compileLinear, type LinearRegex } from "./linearRegex.ts";
+
 export type Location = "path" | "query" | "header" | "cookie" | "body";
 export type InspectionMode = "block" | "observe" | "off";
 export type Paranoia = 1 | 2 | 3 | 4;
@@ -699,7 +701,7 @@ function excluded(exclusions: CompiledExclusion[], rule: InspectionRule, part: P
 }
 
 interface CompiledExclusion {
-  path: RegExp | null;
+  path: LinearRegex | null;
   locations?: Location[];
   names?: string[];
   rules?: string[];
@@ -714,10 +716,11 @@ export function compileExclusions(list: InspectionExclusion[] | undefined): Comp
   if (cached) return cached;
   const out: CompiledExclusion[] = [];
   for (const ex of list) {
-    let path: RegExp | null = null;
+    let path: LinearRegex | null = null;
     if (ex.path) {
+      // Linear-time matcher, like rule patterns; an unusable pattern drops the exclusion.
       try {
-        path = new RegExp(ex.path, "i");
+        path = compileLinear(ex.path);
       } catch {
         continue;
       }

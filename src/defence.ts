@@ -13,6 +13,7 @@
 // Runtime-agnostic (Node, Deno, Bun, Workers). Only WebCrypto is used, when present.
 
 import { collectParts, variants, type InspectionInput, type Location } from "./inspect.ts";
+import { compileLinear, LinearRegexError, type LinearRegex } from "./linearRegex.ts";
 
 /* ------------------------------------------------------------------ */
 /* Hashing helpers                                                     */
@@ -488,7 +489,7 @@ export function satisfies(version: string, range: string): boolean {
 
 interface CompiledPatch {
   patch: VirtualPatch;
-  re: RegExp;
+  re: LinearRegex;
   installed: string;
 }
 
@@ -519,10 +520,11 @@ export class VirtualPatches {
         errors.push(`${p.id}: pattern too long`);
         continue;
       }
+      // Linear-time matcher: a patch pattern can never make requests backtrack.
       try {
-        this.compiled.push({ patch: p, re: new RegExp(p.rule.pattern, "i"), installed });
-      } catch {
-        errors.push(`${p.id}: invalid pattern`);
+        this.compiled.push({ patch: p, re: compileLinear(p.rule.pattern), installed });
+      } catch (e) {
+        errors.push(`${p.id}: ${e instanceof LinearRegexError ? e.message : "invalid pattern"}`);
       }
     }
     return errors;
